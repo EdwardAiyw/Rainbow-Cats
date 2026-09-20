@@ -38,6 +38,10 @@ rc_user_systemctl() {
   sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus systemctl --user "$@"
 }
 
+rc_postgres() {
+  (cd /tmp && sudo -u postgres "$@")
+}
+
 rc_compose() {
   RELEASE_TAG="$rc_stamp" RAINBOW_PORT="$rc_port" OPENCLAW_VERSION="$rc_openclaw_version" \
     docker compose -p "$rc_project" -f "$rc_release_target/compose.production.yaml" "$@"
@@ -67,7 +71,7 @@ rc_cleanup() {
     docker rm -f "$rc_validation_container" >/dev/null 2>&1 || true
   fi
   if [ "$rc_stage_created" -eq 1 ]; then
-    sudo -u postgres dropdb --if-exists "$rc_stage_db" || true
+    rc_postgres dropdb --if-exists "$rc_stage_db" || true
   fi
   exit "$rc_status"
 }
@@ -176,9 +180,9 @@ RELEASE_TAG="$rc_stamp" OPENCLAW_VERSION="$rc_openclaw_version" docker compose -
 docker build -t "rainbow-cats-browser-check:$rc_stamp" "$rc_release_target/deploy/browser"
 
 printf '%s\n' '[4/9] 用正式数据副本验证迁移'
-sudo -u postgres createdb --owner="$rc_db_user" "$rc_stage_db"
+rc_postgres createdb --owner="$rc_db_user" "$rc_stage_db"
 rc_stage_created=1
-sudo -u postgres pg_restore --no-owner --role="$rc_db_user" --dbname="$rc_stage_db" "$rc_backup_dir/database.dump"
+pg_restore --no-owner --dbname="$rc_stage_url" "$rc_backup_dir/database.dump"
 psql "$rc_stage_url" --single-transaction -v ON_ERROR_STOP=1 -f "$rc_release_target/server/schema.sql"
 psql "$rc_stage_url" --single-transaction -v ON_ERROR_STOP=1 -f "$rc_release_target/server/migrations/001_live_upgrade.sql"
 
@@ -322,7 +326,7 @@ ROLLBACK
 chmod 700 "$rc_backup_dir/rollback.sh"
 ln -sfn "$rc_release_target" /opt/rainbow-cats/current
 rc_user_systemctl stop rainbow-cats.service
-sudo -u postgres dropdb --if-exists "$rc_stage_db"
+rc_postgres dropdb --if-exists "$rc_stage_db"
 rc_stage_created=0
 rc_success=1
 trap - EXIT ERR INT TERM
