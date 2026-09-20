@@ -24,11 +24,17 @@ rc_release_target="/opt/rainbow-cats/releases/$rc_stamp"
 rc_stage_db="rainbow_predeploy_${rc_stamp//[^0-9A-Za-z]/_}"
 rc_project=rainbow-cats
 rc_port=3101
+rc_current_link=/opt/rainbow-cats/current
 rc_switched=0
 rc_stage_created=0
 rc_success=0
 rc_openclaw_version=''
 rc_validation_container=''
+rc_candidate_started=0
+rc_previous_managed=0
+rc_previous_release=''
+rc_previous_tag=''
+rc_previous_container=''
 
 mkdir -p "$rc_backup_dir" "$rc_release_target"
 rc_log="$rc_backup_dir/deploy.log"
@@ -47,13 +53,33 @@ rc_compose() {
     docker compose -p "$rc_project" -f "$rc_release_target/compose.production.yaml" "$@"
 }
 
-rc_restore_proxy() {
+rc_previous_compose() {
+  RELEASE_TAG="$rc_previous_tag" RAINBOW_PORT="$rc_port" OPENCLAW_VERSION="$rc_openclaw_version" \
+    docker compose -p "$rc_project" -f "$rc_previous_release/compose.production.yaml" "$@"
+}
+
+rc_restore_caddy() {
   if [ -f "$rc_backup_dir/Caddyfile" ]; then
-    cp "$rc_backup_dir/Caddyfile" "$rc_caddy_file"
-    caddy validate --config "$rc_caddy_file"
-    systemctl reload caddy
+    cp "$rc_backup_dir/Caddyfile" "$rc_caddy_file" \
+      && caddy validate --config "$rc_caddy_file" \
+      && systemctl reload caddy
   fi
-  rc_user_systemctl start rainbow-cats.service || true
+}
+
+rc_restore_previous_container() {
+  printf '正在恢复上一版本容器：%s\n' "$rc_previous_tag" >&2
+  rc_previous_compose up -d --no-build app || return 1
+  for rc_restore_attempt in $(seq 1 60); do
+    if curl --max-time 3 -fsS "http://127.0.0.1:$rc_port/api/v1/health" >/dev/null; then
+      ln -sfn "$rc_previous_release" "$rc_current_link" || return 1
+      return 0
+    fi
+    if [ "$rc_restore_attempt" -eq 60 ]; then
+      rc_previous_compose logs --tail=100 app >&2 || true
+      return 1
+    fi
+    sleep 2
+  done
 }
 
 rc_cleanup() {
@@ -61,9 +87,19 @@ rc_cleanup() {
   trap - EXIT ERR INT TERM
   if [ "$rc_success" -ne 1 ]; then
     printf '部署失败（退出码 %s）。\n' "$rc_status" >&2
-    if [ "$rc_switched" -eq 1 ]; then rc_restore_proxy || true; fi
-    if [ -f "$rc_release_target/compose.production.yaml" ]; then
-      rc_compose down --remove-orphans || true
+    if [ "$rc_previous_managed" -eq 1 ]; then
+      if [ "$rc_candidate_started" -eq 1 ]; then
+        rc_restore_previous_container || printf '%s\n' '自动恢复上一容器失败，请立即人工检查。' >&2
+      fi
+      if [ "$rc_switched" -eq 1 ]; then rc_restore_caddy || true; fi
+    else
+      if [ "$rc_switched" -eq 1 ]; then
+        rc_user_systemctl start rainbow-cats.service || true
+        rc_restore_caddy || true
+      fi
+      if [ "$rc_candidate_started" -eq 1 ] && [ -f "$rc_release_target/compose.production.yaml" ]; then
+        rc_compose down --remove-orphans || true
+      fi
     fi
     printf '旧站点已保留或恢复。日志：%s\n' "$rc_log" >&2
   fi
@@ -82,9 +118,31 @@ test -f "$rc_live_env"
 test -f "$rc_caddy_file"
 test -f "$rc_release_dir/server/schema.sql"
 test -f "$rc_release_dir/server/migrations/001_live_upgrade.sql"
+
+if [ -e "$rc_current_link" ]; then
+  rc_previous_release=$(readlink -f "$rc_current_link")
+  if [ -f "$rc_previous_release/compose.production.yaml" ]; then
+    rc_previous_tag=$(basename "$rc_previous_release")
+    rc_previous_container=$(
+      RELEASE_TAG="$rc_previous_tag" RAINBOW_PORT="$rc_port" OPENCLAW_VERSION='' \
+        docker compose -p "$rc_project" -f "$rc_previous_release/compose.production.yaml" ps -q app 2>/dev/null || true
+    )
+    if [ -n "$rc_previous_container" ] \
+      && [ "$(docker inspect --format '{{.State.Running}}' "$rc_previous_container" 2>/dev/null || true)" = true ] \
+      && [ "$(docker inspect --format '{{.Config.Image}}' "$rc_previous_container" 2>/dev/null || true)" = "rainbow-cats:$rc_previous_tag" ]; then
+      rc_previous_managed=1
+    fi
+  fi
+fi
+
 if ss -H -lnt "sport = :$rc_port" | grep -q .; then
-  printf '端口 %s 已被占用。\n' "$rc_port" >&2
-  exit 1
+  if [ "$rc_previous_managed" -eq 1 ] \
+    && curl --max-time 5 -fsS "http://127.0.0.1:$rc_port/api/v1/health" >/dev/null; then
+    printf '检测到正在运行的受管版本 %s，将执行安全升级。\n' "$rc_previous_tag"
+  else
+    printf '端口 %s 被非受管或异常进程占用，停止部署。\n' "$rc_port" >&2
+    exit 1
+  fi
 fi
 
 rc_db_url=$(python3 - "$rc_live_env" <<'PY'
@@ -229,6 +287,7 @@ rc_validation_container=''
 printf '%s\n' '[6/9] 迁移正式数据库并启动候选容器'
 psql "$rc_db_url" --single-transaction -v ON_ERROR_STOP=1 -f "$rc_release_target/server/schema.sql"
 psql "$rc_db_url" --single-transaction -v ON_ERROR_STOP=1 -f "$rc_release_target/server/migrations/001_live_upgrade.sql"
+rc_candidate_started=1
 rc_compose up -d --no-build app
 for rc_attempt in $(seq 1 60); do
   if curl --max-time 3 -fsS "http://127.0.0.1:$rc_port/api/v1/health" > "$rc_backup_dir/candidate-health.json"; then break; fi
@@ -254,6 +313,7 @@ else
 fi
 
 printf '%s\n' '[8/9] 更新并验证 Caddy 路由'
+rc_switched=1
 python3 - "$rc_caddy_file" <<'PY'
 from pathlib import Path
 import sys
@@ -295,7 +355,6 @@ if not found:
 p.write_text('\n'.join(out) + '\n')
 PY
 caddy validate --config "$rc_caddy_file"
-rc_switched=1
 systemctl reload caddy
 for rc_attempt in $(seq 1 30); do
   if curl --max-time 8 -fsS 'https://rainbow.251104.xyz/api/v1/health' > "$rc_backup_dir/public-health.json"; then break; fi
@@ -311,7 +370,35 @@ rc_internal_status=$(curl --max-time 8 -sS -o /dev/null -w '%{http_code}' 'https
 test "$rc_internal_status" = 404 || { printf '内部接口公网状态码应为 404，实际为 %s。\n' "$rc_internal_status" >&2; exit 1; }
 
 printf '%s\n' '[9/9] 完成切换并生成回退脚本'
-cat > "$rc_backup_dir/rollback.sh" <<ROLLBACK
+if [ "$rc_previous_managed" -eq 1 ]; then
+  cat > "$rc_backup_dir/rollback.sh" <<ROLLBACK
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [ "\$(id -u)" -ne 0 ]; then echo '请使用 root 执行'; exit 1; fi
+previous_release='$rc_previous_release'
+previous_tag='$rc_previous_tag'
+test -f "\$previous_release/compose.production.yaml"
+test -f "\$previous_release/server/.env"
+docker image inspect "rainbow-cats:\$previous_tag" >/dev/null
+RELEASE_TAG="\$previous_tag" RAINBOW_PORT='$rc_port' OPENCLAW_VERSION='' docker compose -p '$rc_project' -f "\$previous_release/compose.production.yaml" up -d --no-build app
+for attempt in \$(seq 1 60); do
+  if curl --max-time 3 -fsS 'http://127.0.0.1:$rc_port/api/v1/health' >/dev/null; then break; fi
+  if [ "\$attempt" -eq 60 ]; then
+    RELEASE_TAG="\$previous_tag" RAINBOW_PORT='$rc_port' OPENCLAW_VERSION='' docker compose -p '$rc_project' -f "\$previous_release/compose.production.yaml" logs --tail=100 app
+    exit 1
+  fi
+  sleep 2
+done
+cp '$rc_backup_dir/Caddyfile' '$rc_caddy_file'
+caddy validate --config '$rc_caddy_file'
+systemctl reload caddy
+ln -sfn "\$previous_release" '$rc_current_link'
+sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus systemctl --user stop rainbow-cats.service || true
+curl --max-time 10 -fsS 'https://rainbow.251104.xyz/api/v1/health'
+echo "已回退到上一容器版本 \$previous_tag；数据库扩展保持向后兼容。"
+ROLLBACK
+else
+  cat > "$rc_backup_dir/rollback.sh" <<ROLLBACK
 #!/usr/bin/env bash
 set -Eeuo pipefail
 if [ "\$(id -u)" -ne 0 ]; then echo '请使用 root 执行'; exit 1; fi
@@ -320,14 +407,16 @@ cp '$rc_backup_dir/Caddyfile' '$rc_caddy_file'
 caddy validate --config '$rc_caddy_file'
 systemctl reload caddy
 RELEASE_TAG='$rc_stamp' RAINBOW_PORT='$rc_port' OPENCLAW_VERSION='$rc_openclaw_version' docker compose -p '$rc_project' -f '$rc_release_target/compose.production.yaml' down
+if [ "\$(readlink -f '$rc_current_link' 2>/dev/null || true)" = '$rc_release_target' ]; then rm -f '$rc_current_link'; fi
 curl --max-time 10 -fsS 'https://rainbow.251104.xyz/api/v1/health'
 echo '已回退到原 systemd 服务；数据库扩展保持兼容，无需恢复数据。'
 ROLLBACK
+fi
 chmod 700 "$rc_backup_dir/rollback.sh"
-ln -sfn "$rc_release_target" /opt/rainbow-cats/current
 rc_user_systemctl stop rainbow-cats.service
 rc_postgres dropdb --if-exists "$rc_stage_db"
 rc_stage_created=0
+ln -sfn "$rc_release_target" "$rc_current_link"
 rc_success=1
 trap - EXIT ERR INT TERM
 printf '部署成功：https://rainbow.251104.xyz\n'
