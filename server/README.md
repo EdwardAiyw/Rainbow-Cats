@@ -45,7 +45,15 @@ npm start
 
 ## 测试
 
-测试必须使用隔离数据库。Windows 上的 UI smoke 会自行启动临时服务和 Headless Edge，创建的测试账号会在结束时删除：
+前端回归测试无需数据库或额外依赖：
+
+```sh
+npm run test:web
+```
+
+覆盖任务按钮状态、跨页缓存保留、并行加载失败、切页错误与重复点击、本地月份和菜谱来源链接。
+
+API 和完整浏览器测试必须使用隔离数据库。Windows 上的 UI smoke 会自行启动临时服务和 Headless Edge，创建的测试账号会在结束时删除：
 
 ```powershell
 $env:DATABASE_URL='postgres://postgres:密码@127.0.0.1:5432/rainbow_cats_manual'
