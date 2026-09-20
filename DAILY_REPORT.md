@@ -12,6 +12,10 @@
 - 为官方菜谱外链增加 HTTP(S) 协议过滤，移除不安全或异常协议链接；窄屏新增记录弹窗支持 `100dvh` 内滚动。
 - 校正积分卡文案，使其与既有业务规则一致：对方完成我发布的任务后，创建者获得积分。
 - 创建独立 `rainbow_cats_acceptance` PostgreSQL 测试库并加载当前 schema，避免旧版 `rainbow_cats` 数据库影响验收。
+- 从现有 GitHub 工作副本恢复当前开发目录的 Git 元数据，确认远端为 `EdwardAiyw/Rainbow-Cats-Personal-WeChat-MiniProgram`，主分支为 `main`。
+- 整理并提交网页端、独立服务端、OpenClaw 接入、数据库 schema、测试脚本和配套文档；提交为 `e4f82e2 feat: add standalone web app and OpenClaw integration`。
+- 补充 `.gitignore`，排除本地 `.env`、PostgreSQL 数据目录、服务日志、登录结果、依赖目录和会话转录，避免本地数据或凭据进入仓库。
+- 确认已删除的 `miniprogram/images/Item.gif` 和 `miniprogram/images/Mission.gif` 不再被代码或配置引用，并将变更推送至 GitHub `origin/main`。
 
 ### 验证情况
 
@@ -21,6 +25,9 @@
 - `http://127.0.0.1:3001/`、`/app.js`、`/styles.css` 均返回 HTTP 200，资源类型正确。
 - `npm run audit:db` 通过：业务表为空、无孤立关联、无超员空间、无过期会话，`healthy: true`。
 - 测试账号和空间已删除；隔离库中的 TianAPI 使用计数已清理。未修改既有 `rainbow_cats` 数据库。
+- `npm run check`、`node --check web/app.js` 和 `node --check cloudfunctions/openclawApi/index.js` 通过。
+- `git diff --cached --check` 通过；敏感信息扫描仅命中文档占位符和隔离测试账号密码，未发现真实密钥或个人数据。
+- GitHub 远端 `main` 已核验指向 `e4f82e2e2cae1f585d77b039db215e52877b0d52`，推送后工作区与 `origin/main` 一致。
 
 ### 当前待办
 
@@ -29,6 +36,13 @@
 - [ ] 配置生产 `DATABASE_URL`、强随机 `SESSION_SECRET`、`WEB_ORIGIN`、HTTPS、备份和限流。
 - [ ] 配置真实 `TIANAPI_KEY` 后验证官方搜索和每日额度保护。
 - [ ] 配置 OpenClaw 网关地址、令牌和 actor 映射后完成真实联调。
+
+### 明日计划（2026-09-21）
+
+1. 使用两个独立浏览器会话复核双人同步、成员权限、任务积分、礼物兑换和收藏使用流程。
+2. 在 iPhone Safari、Android Chrome 和桌面浏览器检查键盘、刷新、会话恢复及响应式布局。
+3. 整理生产部署环境变量、数据库账户、HTTPS、备份和限流配置清单。
+4. 在具备真实凭据后验证 TianAPI 与 OpenClaw 集成分支。
 
 ## 2026-09-19
 
