@@ -1,6 +1,26 @@
-# 我们的日常空间
+# 我们的日常空间（Rainbow-Cats Web）
 
-情侣双人小程序：共同创建心愿、完成任务、赚取积分、兑换礼物并保存使用记录。
+这是一个独立网页双人生活空间：共同创建心愿、完成任务、兑换礼物、记录菜谱、共享日程、管理账本和保存私密相册元数据。正式交付目标是 `web/` + `server/`，不再以微信小程序作为产品入口。
+
+完整的用户操作、本地部署和常见问题说明见 [`USER_GUIDE.md`](USER_GUIDE.md)。
+
+## 当前网页主线
+
+```powershell
+cd server
+npm install
+$env:DATABASE_URL='postgres://postgres:密码@127.0.0.1:5432/rainbow_cats'
+& 'D:\Program Files\PostgreSQL\18\bin\psql.exe' -v ON_ERROR_STOP=1 $env:DATABASE_URL -f schema.sql
+npm start
+```
+
+浏览器打开 `http://localhost:3000`。账号使用用户名、密码和一次性恢复码；创建或加入空间后，所有数据变更都通过服务端 API 完成。生产部署必须配置 HTTPS、`SESSION_SECRET`、`WEB_ORIGIN`、数据库备份与限流。
+
+网页 API、环境变量和迁移说明见 [`server/README.md`](server/README.md)。
+
+`miniprogram/`、`cloudfunctions/` 和 `prototype/` 暂时保留为历史实现和迁移参考，不作为网页运行时依赖；删除前必须完成引用审计和数据迁移演练。
+
+## 历史小程序说明
 
 ## 第一次运行
 
@@ -59,7 +79,18 @@
 用户删除：删除入口位于“收藏”页面右上角的“设置”。部署 `deleteMembership` 后，删除会同时清理当前用户的 `Memberships`、`MissionList`、`MarketList`、`StorageList` 和 `RecipeList` 中属于当前空间的数据，并从 `Spaces.memberOpenIds` 移除当前用户；该操作不可恢复，相关历史记录不会保留。
 
 TianAPI 菜谱：`recipeApi` 云函数会读取云函数环境变量 `TIANAPI_KEY`。不要把 key 写入小程序前端或提交到仓库；在微信云开发控制台为 `recipeApi` 配置环境变量后，重新部署该云函数。为避免免费额度被刷完，`recipeApi` 会通过 `ApiUsage` 集合按天记录 TianAPI 菜谱请求次数，当天达到 95 次后停止请求官方接口，并提示“那就吃我吧”。
+继续配置和 OpenClaw 对接请阅读 [OPENCLAW_INTEGRATION.md](OPENCLAW_INTEGRATION.md) 与 [OPENCLAW_WECHAT_GUIDE.md](OPENCLAW_WECHAT_GUIDE.md)。
 
-## HTML 原型与小程序页面
+OpenClaw 业务入口：`cloudfunctions/openclawApi` 是受保护的服务端调用入口，当前支持 `listMissions`、`listMarket`、`listStorage`、`createMission`、`completeMission` 和 `purchaseGift`。部署后必须在云函数环境变量中配置 `OPENCLAW_API_TOKEN` 与 JSON 格式的 `OPENCLAW_ACTOR_MAP`（例如 `{"main":"微信用户 openId"}`）；不要将这些值写入仓库。所有操作仍在云函数中校验空间成员身份并执行事务。
+
+网页版菜谱兜底：网页版服务器会先搜索 TianAPI；精确搜索无结果时，会继续检索相关关键词。若远端服务器与 OpenClaw Gateway 部署在同一台机器，并设置 `OPENCLAW_RECIPE_ENABLED=true`，仍无结果时由 OpenClaw 生成“菜名、简介、食材、调料、步骤、小贴士”格式的参考做法。AI 结果会明确标记为“AI 生成”，不作为官方菜谱展示；Gateway 仅监听本机回环地址，不对公网开放。
+
+## 网页版后端（当前主线）
+
+`web/` 是正式原生 HTML/CSS/JS 客户端，`server/` 是独立 Node.js + PostgreSQL 后端。网页版提供登录、双人空间、心愿、礼物、收藏、自建/官方菜谱、设置和账号删除；OpenClaw 同时提供微信对话动作接口与可选网页聊天代理。生产环境需执行 `server/schema.sql`，并通过环境变量配置数据库、CORS、TianAPI 和 OpenClaw 凭据。小程序代码保留为历史归档，正式开发和部署以 HTML + 独立服务器为准；CloudBase 数据迁移必须在备份、演练和停写窗口完成后执行。
+
+详细迁移边界和验收标准见 [`WEB_PLAN.md`](WEB_PLAN.md)。
+
+## HTML 原型与小程序页面（历史）
 
 `prototype/` 保存浏览器端 HTML 视觉原型，使用脱敏 mock 数据，仅用于确认布局、文案和交互。原型定稿后，页面结构转换为 WXML，样式转换为 WXSS，交互转换为小程序 JavaScript；主业务页面不使用 `web-view`，仍通过 `miniprogram/utils/cloud.js` 调用云函数。打开 `prototype/index.html` 即可查看首页原型，其他页面位于 `prototype/pages/`。

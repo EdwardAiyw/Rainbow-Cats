@@ -1,3 +1,10 @@
 node_modules/
 miniprogram_npm/
 project.private.config.json
+server/.env
+server/node_modules/
+server/migration-data/
+cli-login-result.json
+server/.tmp-pg/
+server/*.log
+Rainbow-Cats.txt
