@@ -29,7 +29,7 @@ async function request(path, options = {}) {
 
 async function waitForServer() {
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    try { if ((await request('/health')).database === 'configured') return } catch (_) {}
+    try { if ((await request('/health')).database === 'ready') return } catch (_) {}
     await new Promise(resolve => setTimeout(resolve, 200))
   }
   throw new Error('API 服务启动超时')
@@ -51,9 +51,18 @@ async function main() {
     await waitForServer()
     await expectFailure(() => request('/me'), 401)
     await expectFailure(() => request('/recipes/search?word=%E7%BA%A2%E7%83%A7%E8%82%89'), 401)
+    await expectFailure(() => request('/auth/create-space', { method: 'POST', body: '{' }), 400)
+    await expectFailure(() => request('/auth/create-space', { method: 'POST', body: JSON.stringify({ displayName: 'x'.repeat(70000) }) }), 413)
     const created = await request('/auth/create-space', { method: 'POST', body: JSON.stringify({ displayName: ownerName, username: ownerUsername, password }) })
     ownerSpaceId = created.spaceId
     const ownerHeaders = { Authorization: `Bearer ${created.token}` }
+    const setupPool = new Pool({ connectionString: databaseUrl })
+    try { await setupPool.query('UPDATE users SET username=NULL,password_hash=NULL,recovery_code_hash=NULL WHERE id=$1', [created.user.id]) } finally { await setupPool.end() }
+    assert.equal((await request('/me', { headers: ownerHeaders })).username, null)
+    const claimed = await request('/me/credentials', { method: 'PATCH', headers: ownerHeaders, body: JSON.stringify({ username: ownerUsername, password }) })
+    assert.equal(claimed.username, ownerUsername)
+    assert.match(claimed.recoveryCode, /^RC-[A-F0-9]{4}-[A-F0-9]{4}$/)
+    await expectFailure(() => request('/me/credentials', { method: 'PATCH', headers: ownerHeaders, body: JSON.stringify({ username: `${ownerUsername}_again`, password }) }), 409)
     await expectFailure(() => request('/recipes/search?word=%E7%BA%A2%E7%83%A7%E8%82%89', { headers: ownerHeaders }), 503)
     const joined = await request('/auth/join-space', { method: 'POST', body: JSON.stringify({ displayName: guestName, username: guestUsername, password, inviteCode: created.inviteCode }) })
     const guestHeaders = { Authorization: `Bearer ${joined.token}` }

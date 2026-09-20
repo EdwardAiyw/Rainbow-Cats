@@ -1,0 +1,21 @@
+FROM node:24-bookworm-slim
+
+ARG OPENCLAW_VERSION=""
+ENV NODE_ENV=production \
+    HOME=/home/node \
+    OPENCLAW_HOME=/home/node \
+    OPENCLAW_STATE_DIR=/home/node/.openclaw
+
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm ci --omit=dev \
+    && if [ -n "$OPENCLAW_VERSION" ]; then npm install -g "openclaw@$OPENCLAW_VERSION" --allow-scripts=openclaw; fi \
+    && npm cache clean --force
+COPY --chown=node:node server/ ./
+COPY --chown=node:node web/ /app/web/
+
+USER node
+EXPOSE 3101
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=4 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3101)+'/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+CMD ["node", "src/server.js"]

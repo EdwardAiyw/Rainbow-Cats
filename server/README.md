@@ -18,13 +18,16 @@ npm start
 ## 环境变量
 
 - `PORT`：HTTP 端口，默认 `3000`
+- `HOST`：监听地址，默认 `127.0.0.1`；生产环境由同机反向代理访问
 - `DATABASE_URL`：PostgreSQL 连接串
 - `SESSION_SECRET`：部署时使用的随机密钥
 - `WEB_ORIGIN`：允许携带 Cookie 的网页来源
-- `TIANAPI_KEY`：可选，服务端代理菜谱搜索
+- `MAX_BODY_BYTES`：单个 JSON 请求体上限，默认 `65536`
+- `TIANAPI_KEY`、`TIANAPI_DAILY_LIMIT`：可选，服务端代理菜谱搜索及每日限额
 - `OPENCLAW_CHAT_URL`、`OPENCLAW_GATEWAY_TOKEN`：可选，服务端代理 OpenClaw 聊天
 - `OPENCLAW_INTERNAL_TOKEN`：OpenClaw 本机插件调用 `/api/internal/openclaw/*` 的独立服务令牌；不要与网页会话令牌复用
 - `OPENCLAW_IDENTITY_SECRET`：微信发送者身份索引的 HMAC 密钥；未配置时回退到 `SESSION_SECRET`
+- `OPENCLAW_RECIPE_ENABLED`、`OPENCLAW_RECIPE_MODEL`、`OPENCLAW_RECIPE_DAILY_LIMIT`：TianAPI 无结果时的 OpenClaw 菜谱兜底及限额
 
 ## API 领域
 
@@ -64,3 +67,5 @@ npm run audit:db
 ```
 
 若 Edge 不在默认安装路径，通过 `EDGE_PATH` 指定可执行文件。UI smoke 会将桌面和 `390×844` 移动视口截图写入系统临时目录。
+
+`rainbow.251104.xyz` 的生产脚本会从正式备份创建临时 PostgreSQL 数据库，并在副本上自动运行上述检查以及容器化 Playwright Chromium 验收；操作见 [`../deploy/README.zh-CN.md`](../deploy/README.zh-CN.md)。

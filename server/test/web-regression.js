@@ -6,9 +6,13 @@ const path = require('node:path')
 
 function client() {
   const element = { innerHTML: '', dataset: {}, classList: { add() {}, remove() {} }, setAttribute() {}, removeAttribute() {} }
+  const memory = new Map()
+  const storage = { getItem: key => memory.get(key) || '', setItem: (key, value) => memory.set(key, String(value)), removeItem: key => memory.delete(key) }
   const context = vm.createContext({
     document: { querySelector: selector => ['#app', '#toast'].includes(selector) ? element : null, querySelectorAll: () => [], addEventListener() {} },
-    sessionStorage: { getItem: () => '', removeItem() {} },
+    sessionStorage: storage,
+    localStorage: storage,
+    AbortController,
     setTimeout: () => 1, clearTimeout() {},
     fetch: async () => { throw new Error('Unexpected network request') }
   })
@@ -85,4 +89,19 @@ test('recipe links reject executable URLs before DOM insertion', () => {
   const { run } = client()
   assert.doesNotMatch(run("recipesView({ recipeSearch: [{ title: 'x', url: 'javascript:alert(1)' }] })"), /href=/)
   assert.match(run("recipesView({ recipeSearch: [{ title: 'x', url: 'https://example.com/recipe' }] })"), /href="https:\/\/example.com\/recipe"/)
+})
+
+test('legacy accounts are prompted to create durable login credentials', () => {
+  const { run } = client()
+  run("state.me = { id: 'legacy', displayName: '旧用户', username: null }; state.data.bindings = []")
+  assert.match(run('settingsView()'), /id="credentials-form"/)
+  run("state.me.username = 'saved_user'")
+  assert.doesNotMatch(run('settingsView()'), /id="credentials-form"/)
+})
+
+test('generated recipes remain visibly labelled and show their method', () => {
+  const { run } = client()
+  const html = run("recipesView({ recipes: [], recipeSearch: [{ title: '测试菜', isGenerated: true, ingredients: '水', steps: '煮开' }] })")
+  assert.match(html, /AI 生成参考/)
+  assert.match(html, /查看做法/)
 })
