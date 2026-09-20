@@ -1,5 +1,8 @@
 const assert = require('assert/strict')
 const { spawn } = require('child_process')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const { Pool } = require('pg')
 
 const port = Number(process.env.TEST_PORT || 3417)
@@ -15,6 +18,7 @@ const guestUsername = `guest_${suffix}`.replace(/[^a-z0-9_]/g, '').slice(0, 30)
 const password = 'RainbowCats-test-2026'
 let child
 let ownerSpaceId
+let openclawDir
 
 async function request(path, options = {}) {
   const response = await fetch(baseUrl + path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } })
@@ -46,7 +50,27 @@ async function cleanup() {
 }
 
 async function main() {
-  child = spawn(process.execPath, ['src/server.js'], { cwd: __dirname + '/..', env: { ...process.env, DATABASE_URL: databaseUrl, PORT: String(port) }, stdio: 'ignore' })
+  openclawDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rainbow-openclaw-'))
+  const openclawPath = path.join(openclawDir, 'openclaw')
+  fs.writeFileSync(openclawPath, `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ outputs: [{ text: JSON.stringify({ message: 'CLI Gateway 测试回答', action: null, payload: {} }) }] }))
+`)
+  fs.chmodSync(openclawPath, 0o755)
+  child = spawn(process.execPath, ['src/server.js'], {
+    cwd: __dirname + '/..',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl,
+      PORT: String(port),
+      PATH: `${openclawDir}${path.delimiter}${process.env.PATH || ''}`,
+      OPENCLAW_CHAT_URL: '',
+      OPENCLAW_GATEWAY_TOKEN: '',
+      OPENCLAW_CHAT_CLI_ENABLED: 'true',
+      OPENCLAW_CHAT_MODEL: 'test/mock',
+      OPENCLAW_CHAT_DAILY_LIMIT: '100'
+    },
+    stdio: 'ignore'
+  })
   try {
     await waitForServer()
     await expectFailure(() => request('/me'), 401)
@@ -56,6 +80,10 @@ async function main() {
     const created = await request('/auth/create-space', { method: 'POST', body: JSON.stringify({ displayName: ownerName, username: ownerUsername, password }) })
     ownerSpaceId = created.spaceId
     const ownerHeaders = { Authorization: `Bearer ${created.token}` }
+    const openclawStatus = await request('/openclaw/status', { headers: ownerHeaders })
+    assert.deepEqual(openclawStatus, { configured: true, transport: 'cli-gateway', model: 'test/mock' })
+    const openclawReply = await request('/openclaw/chat', { method: 'POST', headers: ownerHeaders, body: JSON.stringify({ message: '你好' }) })
+    assert.deepEqual(openclawReply, { message: 'CLI Gateway 测试回答' })
     const setupPool = new Pool({ connectionString: databaseUrl })
     try { await setupPool.query('UPDATE users SET username=NULL,password_hash=NULL,recovery_code_hash=NULL WHERE id=$1', [created.user.id]) } finally { await setupPool.end() }
     assert.equal((await request('/me', { headers: ownerHeaders })).username, null)
@@ -94,6 +122,7 @@ async function main() {
   } finally {
     if (child && !child.killed) child.kill()
     await cleanup()
+    if (openclawDir) fs.rmSync(openclawDir, { recursive: true, force: true })
   }
 }
 

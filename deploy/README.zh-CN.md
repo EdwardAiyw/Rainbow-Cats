@@ -32,9 +32,9 @@ bash deploy/deploy-production.sh
 2. 备份旧源码、`.env`、Caddyfile 和 PostgreSQL 自定义格式转储。
 3. 构建固定版本的应用镜像和 Playwright 浏览器验收镜像。
 4. 从正式备份创建临时数据库，并在副本上执行全部表结构升级。
-5. 在数据库副本上执行语法检查、9 项网页回归、API 烟雾测试、数据完整性审计和 Chromium 端到端操作。
+5. 在数据库副本上执行语法检查、13 项网页回归、API 烟雾测试、数据完整性审计和 Chromium 端到端操作。
 6. 副本全部通过后才升级正式数据库，并在 `127.0.0.1:3101` 启动候选容器。
-7. 验证容器内 OpenClaw 版本与 Gateway 推理通道。
+7. 验证容器内 OpenClaw 版本与 CLI Gateway 推理通道；配置目录保持只读，只有 `state/` 子目录可写。
 8. 校验并重载 Caddy，将 `rainbow.251104.xyz` 切换到新容器；公网健康检查通过后停止旧 systemd 服务。后续升级会保留上一发布目录和镜像，用于失败自动恢复及人工回退。
 
 浏览器验收会实际完成“创建空间 → 创建任务 → 退出 → 账号密码登录 → 刷新会话 → 移动端布局 → 删除测试账号”，测试数据只写入临时数据库副本。
@@ -57,6 +57,8 @@ ls -lh "$latest_backup/browser/"
 ```
 
 健康接口必须返回 `ok: true` 和 `database: "ready"`；容器状态必须为 `Up` 或 `healthy`；`browser-report.json` 必须包含 `"ok": true`。浏览器目录同时保存桌面端和移动端截图。
+
+登录网页后，AI 助手页还应显示“OpenClaw 已连接 · 本机安全通道”。该状态来自鉴权接口 `/api/v1/openclaw/status`，不会公开令牌。生产 `.env` 已有 `OPENCLAW_RECIPE_ENABLED=true` 时，CLI 聊天会自动启用；若要显式控制，可设置 `OPENCLAW_CHAT_CLI_ENABLED=true|false`。
 
 ## 回退
 

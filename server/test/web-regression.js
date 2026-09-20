@@ -13,6 +13,7 @@ function client() {
     sessionStorage: storage,
     localStorage: storage,
     AbortController,
+    FormData: class { constructor(form) { this.form = form } entries() { return Object.entries(this.form.values || {}) } },
     setTimeout: () => 1, clearTimeout() {},
     fetch: async () => { throw new Error('Unexpected network request') }
   })
@@ -104,4 +105,43 @@ test('generated recipes remain visibly labelled and show their method', () => {
   const html = run("recipesView({ recipes: [], recipeSearch: [{ title: '测试菜', isGenerated: true, ingredients: '水', steps: '煮开' }] })")
   assert.match(html, /AI 生成参考/)
   assert.match(html, /查看做法/)
+})
+
+test('AI view exposes the CLI Gateway connection and conversation', () => {
+  const { run } = client()
+  const html = run("aiView({ openclawStatus: { configured: true, transport: 'cli-gateway', model: 'test/model' }, proposals: [{ id: 'p1', action: 'create_event', status: 'pending', created_at: '2026-09-20T12:00:00Z' }], aiMessages: [{ role: 'user', message: '<测试>' }, { role: 'assistant', message: '已收到' }] })")
+  assert.match(html, /OpenClaw 已连接/)
+  assert.match(html, /本机安全通道/)
+  assert.match(html, /新增日程/)
+  assert.match(html, /&lt;测试&gt;/)
+  assert.doesNotMatch(html, /type="submit" disabled/)
+})
+
+test('AI view disables chat when OpenClaw is not enabled', () => {
+  const { run } = client()
+  const html = run("aiView({ openclawStatus: { configured: false, transport: 'disabled' }, proposals: [], aiMessages: [] })")
+  assert.match(html, /OpenClaw 尚未启用/)
+  assert.match(html, /id="ai-chat-form"/)
+  assert.match(html, /type="submit" disabled/)
+})
+
+test('AI loader preserves the local conversation while refreshing status', async () => {
+  const { run } = client()
+  run("state.data = { aiMessages: [{ role: 'user', message: '保留我' }] }; api = async path => path === '/ai/proposals' ? [{ id: 'p1' }] : { configured: true, transport: 'cli-gateway' }")
+  await run('loadAI()')
+  assert.equal(run('state.data.aiMessages[0].message'), '保留我')
+  assert.equal(run('state.data.proposals[0].id'), 'p1')
+  assert.equal(run('state.data.openclawStatus.transport'), 'cli-gateway')
+})
+
+test('AI chat keeps the reply and turns write requests into proposals', async () => {
+  const { run } = client()
+  run("state.data = { openclawStatus: { configured: true }, proposals: [], aiMessages: [] }; calls = []; api = async (path, options) => { calls.push({ path, timeout: options.timeout }); return path === '/openclaw/chat' ? { message: '已整理', action: 'create_event', payload: { title: '看电影' } } : { id: 'p1', action: 'create_event', status: 'pending' } }; render = () => {}")
+  await run("handleAiSubmit({ preventDefault() {}, target: { values: { message: '安排看电影' } } })")
+  assert.equal(run('calls[0].path'), '/openclaw/chat')
+  assert.equal(run('calls[0].timeout'), 65000)
+  assert.equal(run('calls[1].path'), '/ai/proposals')
+  assert.equal(run('state.data.aiMessages[1].message'), '已整理')
+  assert.equal(run('state.data.proposals[0].id'), 'p1')
+  assert.equal(run('state.data.aiPending'), false)
 })

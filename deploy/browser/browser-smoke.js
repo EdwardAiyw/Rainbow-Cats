@@ -66,6 +66,11 @@ async function main() {
     await page.locator('.workspace').waitFor()
     checked('退出、账号密码登录和刷新会话正常')
 
+    await page.locator('[data-view="ai"]').first().click()
+    await page.getByText('OpenClaw 尚未启用', { exact: true }).waitFor()
+    assert.equal(await page.locator('#ai-chat-form button[type="submit"]').isDisabled(), true)
+    checked('OpenClaw 状态与禁用态展示正常')
+
     await page.setViewportSize({ width: 390, height: 844 })
     const mobileDisplay = await page.locator('.mobile-nav').evaluate(element => getComputedStyle(element).display)
     assert.notEqual(mobileDisplay, 'none')

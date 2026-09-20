@@ -18,6 +18,7 @@ services:
       OPENCLAW_STATE_DIR: /home/node/.openclaw
     volumes:
       - /home/ubuntu/.openclaw:/home/node/.openclaw:ro
+      - /home/ubuntu/.openclaw/state:/home/node/.openclaw/state:rw
     restart: unless-stopped
     init: true
     read_only: true

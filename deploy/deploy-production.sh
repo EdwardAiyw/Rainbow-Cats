@@ -189,24 +189,33 @@ PY
 rc_openclaw_enabled=$(python3 - "$rc_live_env" <<'PY'
 from pathlib import Path
 import sys
-value = 'false'
+values = {}
 for raw in Path(sys.argv[1]).read_text().splitlines():
-    if raw.strip().startswith('OPENCLAW_RECIPE_ENABLED='):
-        value = raw.split('=', 1)[1].strip().strip("\"'")
-print(value.lower())
+    line = raw.strip()
+    if line and not line.startswith('#') and '=' in line:
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip().strip("\"'").lower()
+recipe_enabled = values.get('OPENCLAW_RECIPE_ENABLED', 'false') == 'true'
+chat_enabled = values.get('OPENCLAW_CHAT_CLI_ENABLED', '')
+if not chat_enabled:
+    chat_enabled = str(recipe_enabled).lower()
+print(str(recipe_enabled or chat_enabled == 'true').lower())
 PY
 )
 rc_openclaw_model=$(python3 - "$rc_live_env" <<'PY'
 from pathlib import Path
 import sys
-value = 'deepseek/deepseek-v4-flash'
+values = {}
 for raw in Path(sys.argv[1]).read_text().splitlines():
-    if raw.strip().startswith('OPENCLAW_RECIPE_MODEL='):
-        value = raw.split('=', 1)[1].strip().strip("\"'")
-print(value)
+    line = raw.strip()
+    if line and not line.startswith('#') and '=' in line:
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip().strip("\"'")
+print(values.get('OPENCLAW_CHAT_MODEL') or values.get('OPENCLAW_RECIPE_MODEL') or 'deepseek/deepseek-v4-flash')
 PY
 )
 if [ "$rc_openclaw_enabled" = true ]; then
+  install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.openclaw/state
   rc_openclaw_bin=''
   for rc_candidate in /usr/local/bin/openclaw /usr/bin/openclaw /home/ubuntu/.local/bin/openclaw /home/ubuntu/.openclaw/bin/openclaw; do
     if [ -x "$rc_candidate" ]; then rc_openclaw_bin=$rc_candidate; break; fi
@@ -214,7 +223,7 @@ if [ "$rc_openclaw_enabled" = true ]; then
   if [ -z "$rc_openclaw_bin" ]; then
     rc_openclaw_bin=$(sudo -u ubuntu -H bash -lc 'command -v openclaw' 2>/dev/null || true)
   fi
-  test -x "$rc_openclaw_bin" || { printf '%s\n' 'OPENCLAW_RECIPE_ENABLED=true，但未找到宿主机 openclaw 命令。' >&2; exit 1; }
+  test -x "$rc_openclaw_bin" || { printf '%s\n' 'OpenClaw 推理已启用，但未找到宿主机 openclaw 命令。' >&2; exit 1; }
   rc_openclaw_version=$(sudo -u ubuntu "$rc_openclaw_bin" --version 2>&1 | grep -Eo '[0-9]{4}\.[0-9]+\.[0-9]+[^[:space:]]*' | head -1 || true)
   test -n "$rc_openclaw_version" || { printf '%s\n' '无法确定宿主机 OpenClaw 版本。' >&2; exit 1; }
   printf '将容器内 OpenClaw 固定为 %s。\n' "$rc_openclaw_version"
@@ -301,15 +310,16 @@ assert payload.get('ok') is True and payload.get('data', {}).get('database') == 
 PY
 
 if [ "$rc_openclaw_enabled" = true ]; then
-  printf '%s\n' '[7/9] 验证容器内 OpenClaw 菜谱推理通道'
+  printf '%s\n' '[7/9] 验证容器内 OpenClaw CLI Gateway 推理通道'
   rc_compose exec -T app openclaw --version
   RELEASE_TAG="$rc_stamp" RAINBOW_PORT="$rc_port" OPENCLAW_VERSION="$rc_openclaw_version" \
     timeout 75 docker compose -p "$rc_project" -f "$rc_release_target/compose.production.yaml" \
       exec -T app openclaw infer model run --gateway --model "$rc_openclaw_model" \
       --prompt 'Reply with exactly: pong' --json > "$rc_backup_dir/openclaw-smoke.json"
   test -s "$rc_backup_dir/openclaw-smoke.json"
+  grep -qi 'pong' "$rc_backup_dir/openclaw-smoke.json" || { printf '%s\n' 'OpenClaw 推理未返回 pong。' >&2; exit 1; }
 else
-  printf '%s\n' '[7/9] OpenClaw 菜谱未启用，跳过推理通道测试'
+  printf '%s\n' '[7/9] OpenClaw 推理未启用，跳过 CLI Gateway 测试'
 fi
 
 printf '%s\n' '[8/9] 更新并验证 Caddy 路由'

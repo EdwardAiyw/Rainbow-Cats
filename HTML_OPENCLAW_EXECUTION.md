@@ -1,57 +1,55 @@
 # HTML 全面迁移与 OpenClaw 执行清单
 
-更新时间：2026-09-06
+更新时间：2026-09-20
 
 ## 已直接完成
 
 - HTML + Node.js + PostgreSQL 已作为项目主线。
 - 网页端已加入“问小一”入口。
-- 服务端已新增 `POST /api/v1/openclaw/chat` 网页聊天代理。
+- 服务端已新增 `GET /api/v1/openclaw/status` 和 `POST /api/v1/openclaw/chat`；HTTP Gateway 未配置时自动回退到本机 CLI Gateway。
 - OpenClaw 业务动作已扩展：`listRecipes`、`addRecipe`、`useStorageItem`、`updateDisplayName`。
 - 已新增 `DELETE /api/v1/me`，包含空间所有者转移和资料清理。
 - 已更新 README、OpenClaw 对接说明和项目日报。
 - `openclaw` CLI 已安装，版本为 `2026.7.1-2`。
 
-## 当前机器检查结果
+## 当前生产服务器检查结果
 
 | 项目 | 结果 |
 | --- | --- |
-| OpenClaw CLI | 已安装 |
-| OpenClaw Gateway | 未运行，服务未安装；当前配置为 `127.0.0.1:18789` |
+| OpenClaw CLI | 已安装，版本 `2026.7.1-2` |
+| CLI Gateway 推理 | 已通过容器内 `openclaw infer model run --gateway` 实测 |
 | `OPENCLAW_API_TOKEN` | 未配置 |
 | `OPENCLAW_ACTOR_MAP` | 未配置 |
-| `OPENCLAW_CHAT_URL` | 未配置 |
-| `OPENCLAW_GATEWAY_TOKEN` | 未配置 |
-| `DATABASE_URL` | 默认 shell 未配置；本机私有加载脚本可在当前会话安全注入测试库连接 |
-| `TIANAPI_KEY` | 未配置 |
-| PostgreSQL 服务 | 已运行（PostgreSQL 18） |
+| `OPENCLAW_CHAT_URL` / `OPENCLAW_GATEWAY_TOKEN` | 未配置；当前不再阻塞网页聊天 |
+| `OPENCLAW_RECIPE_ENABLED` | 已启用，因此默认同时启用 CLI 网页聊天 |
+| PostgreSQL 与网页服务 | Docker 容器健康，数据库联调与公网健康检查已通过 |
 
-## 需要你提供的唯一敏感信息
+## 可选的敏感配置
 
 不要把真实值写入仓库或聊天记录。请在部署服务器的安全环境变量中填写：
 
 ```powershell
 $env:OPENCLAW_API_TOKEN = '<生成的 Rainbow-Cats 服务令牌>'
 $env:OPENCLAW_ACTOR_MAP = '{"main":"<对应微信用户的 legacy_open_id>"}'
-$env:OPENCLAW_GATEWAY_TOKEN = '<OpenClaw Gateway 令牌>'
-$env:OPENCLAW_CHAT_URL = 'http://127.0.0.1:18789/<实际聊天 HTTP 入口>'
+$env:OPENCLAW_GATEWAY_TOKEN = '<仅在使用独立 HTTP Gateway 时配置>'
+$env:OPENCLAW_CHAT_URL = 'http://127.0.0.1:<端口>/<实际聊天 HTTP 入口>'
 $env:DATABASE_URL = 'postgres://<生产应用账户>:<密码>@<主机>:5432/rainbow_cats'
 $env:TIANAPI_KEY = '<TianAPI key（可选）>'
 ```
 
-`OPENCLAW_API_TOKEN` 是 Rainbow-Cats API 与 OpenClaw 之间的共享服务令牌；`OPENCLAW_GATEWAY_TOKEN` 是 Gateway 自身令牌，两者必须不同。
+网页聊天采用当前本机 CLI Gateway 时，不需要填写 `OPENCLAW_CHAT_URL` 或 `OPENCLAW_GATEWAY_TOKEN`。`OPENCLAW_API_TOKEN` 用于历史 CloudBase 接口；若以后启用独立 HTTP Gateway，其 Token 必须与其他服务令牌分开。
 
-## OpenClaw Gateway 执行步骤
+## OpenClaw 网页聊天运行方式
 
-当前 Gateway 状态：已检测到 CLI，但 Gateway 未安装、未启动。配置真实令牌后，在运行 OpenClaw 的同一 Windows 用户下执行：
+生产 `.env` 中已有 `OPENCLAW_RECIPE_ENABLED=true` 时，`OPENCLAW_CHAT_CLI_ENABLED` 留空即可继承启用状态。也可以显式配置：
 
-```powershell
-openclaw gateway install
-openclaw gateway start
-openclaw gateway status
+```dotenv
+OPENCLAW_CHAT_CLI_ENABLED=true
+OPENCLAW_CHAT_MODEL=deepseek/deepseek-v4-flash
+OPENCLAW_CHAT_DAILY_LIMIT=100
 ```
 
-必须保持 Gateway 为 loopback-only（`127.0.0.1`），不要使用公网暴露或 Tailscale funnel。启动后确认健康检查成功，再将实际聊天 HTTP 路由填入 `OPENCLAW_CHAT_URL`。
+应用容器内执行的是一次性 `openclaw infer model run --gateway`，不启动公网监听，也不授予模型业务工具。模型返回的写操作只会形成待确认提案。若以后切换独立 HTTP Gateway，仍必须保持 loopback-only（`127.0.0.1`），不得直接暴露公网。
 
 ## 数据迁移执行步骤
 
@@ -91,8 +89,7 @@ npm run test:api
 
 ## 当前阻塞项
 
-- 没有真实 OpenClaw 令牌和 actor 映射，无法安全代填环境变量。
-- Gateway 当前未运行，且 CLI 帮助未提供可直接推断的聊天 HTTP 路由，不能臆造 `OPENCLAW_CHAT_URL`。
+- 微信渠道身份映射仍需真实微信账号完成绑定；它不影响当前网页 OpenClaw 聊天。
 - 没有 CloudBase 导出文件和生产数据库连接，不能执行正式迁移。
 - OAuth 资质和真机不在本机环境中。
 
