@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+server/migration-data
+server/.tmp-pg
+Pics
+cloudfunctions
+miniprogram
+prototype
+*.tar.gz

@@ -103,7 +103,9 @@ async function main() {
       SESSION_SECRET: 'ui-smoke-session-secret',
       TIANAPI_KEY: '',
       OPENCLAW_CHAT_URL: '',
-      OPENCLAW_GATEWAY_TOKEN: ''
+      OPENCLAW_GATEWAY_TOKEN: '',
+      OPENCLAW_CHAT_CLI_ENABLED: 'false',
+      OPENCLAW_RECIPE_ENABLED: 'false'
     },
     stdio: 'ignore'
   })
@@ -191,12 +193,13 @@ async function main() {
   await waitFor(() => evaluate(`document.querySelector('#toast')?.textContent.includes('TIANAPI_KEY')`), 'TianAPI 未配置提示缺失')
 
   await evaluate(`document.querySelector('.sidebar [data-view="ai"]').click()`)
-  await waitFor(() => evaluate(`Boolean(document.querySelector('#ai-form'))`), 'AI 页面加载失败')
-  await evaluate(`(() => {
-    document.querySelector('#ai-form [name="message"]').value = '测试消息'
-    document.querySelector('#ai-form').requestSubmit()
-  })()`)
-  await waitFor(() => evaluate(`document.querySelector('#toast')?.textContent.includes('OpenClaw')`), 'OpenClaw 未配置提示缺失')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('#ai-chat-form'))`), 'AI 页面加载失败')
+  const aiOffline = await evaluate(`({
+    status: document.querySelector('.ai-status')?.textContent.includes('OpenClaw 尚未启用'),
+    offlineClass: document.querySelector('.ai-status')?.classList.contains('is-offline'),
+    submitDisabled: document.querySelector('#ai-chat-form [type="submit"]')?.disabled
+  })`)
+  assert.deepEqual(aiOffline, { status: true, offlineClass: true, submitDisabled: true })
 
   const desktopCapture = await send('Page.captureScreenshot', { format: 'png' })
   fs.writeFileSync(screenshots.desktop, Buffer.from(desktopCapture.data, 'base64'))

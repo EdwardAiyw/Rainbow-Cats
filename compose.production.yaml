@@ -1,0 +1,30 @@
+services:
+  app:
+    image: rainbow-cats:${RELEASE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      args:
+        OPENCLAW_VERSION: ${OPENCLAW_VERSION:-}
+    network_mode: host
+    env_file:
+      - server/.env
+    environment:
+      PORT: ${RAINBOW_PORT:-3101}
+      HOST: 127.0.0.1
+      NODE_ENV: production
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+    volumes:
+      - /home/ubuntu/.openclaw:/home/node/.openclaw:ro
+      - /home/ubuntu/.openclaw/state:/home/node/.openclaw/state:rw
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

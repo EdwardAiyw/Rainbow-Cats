@@ -18,13 +18,18 @@ npm start
 ## 环境变量
 
 - `PORT`：HTTP 端口，默认 `3000`
+- `HOST`：监听地址，默认 `127.0.0.1`；生产环境由同机反向代理访问
 - `DATABASE_URL`：PostgreSQL 连接串
 - `SESSION_SECRET`：部署时使用的随机密钥
 - `WEB_ORIGIN`：允许携带 Cookie 的网页来源
-- `TIANAPI_KEY`：可选，服务端代理菜谱搜索
-- `OPENCLAW_CHAT_URL`、`OPENCLAW_GATEWAY_TOKEN`：可选，服务端代理 OpenClaw 聊天
+- `MAX_BODY_BYTES`：单个 JSON 请求体上限，默认 `65536`
+- `TIANAPI_KEY`、`TIANAPI_DAILY_LIMIT`：可选，服务端代理菜谱搜索及每日限额
+- `OPENCLAW_CHAT_URL`、`OPENCLAW_GATEWAY_TOKEN`：可选的独立 HTTP Gateway；两项都配置时优先使用
+- `OPENCLAW_CHAT_CLI_ENABLED`：是否允许网页聊天通过本机 `openclaw infer model run --gateway` 推理；留空时继承 `OPENCLAW_RECIPE_ENABLED`
+- `OPENCLAW_CHAT_MODEL`、`OPENCLAW_CHAT_DAILY_LIMIT`：网页聊天模型及全站每日请求上限，默认继承菜谱模型、每日 `100` 次
 - `OPENCLAW_INTERNAL_TOKEN`：OpenClaw 本机插件调用 `/api/internal/openclaw/*` 的独立服务令牌；不要与网页会话令牌复用
 - `OPENCLAW_IDENTITY_SECRET`：微信发送者身份索引的 HMAC 密钥；未配置时回退到 `SESSION_SECRET`
+- `OPENCLAW_RECIPE_ENABLED`、`OPENCLAW_RECIPE_MODEL`、`OPENCLAW_RECIPE_DAILY_LIMIT`：TianAPI 无结果时的 OpenClaw 菜谱兜底及限额
 
 ## API 领域
 
@@ -32,7 +37,7 @@ npm start
 
 业务：`/space`、`/missions`、`/market`、`/storage`、`/recipes`、`/calendar/events`、`/expenses`、`/budget`、`/album`、`/ai/proposals`。
 
-写操作均在服务端校验空间成员身份并记录 `audit_logs`。AI 写操作先创建提案，网页确认后才执行对应事务。
+写操作均在服务端校验空间成员身份并记录 `audit_logs`。AI 写操作先创建提案，网页确认后才执行对应事务。网页聊天会先尝试配置完整的独立 HTTP Gateway；未配置时可使用本机 CLI Gateway。CLI 模式只执行单次模型推理，不调用工具，业务写入仍只能通过网页提案确认。
 
 微信渠道绑定：登录网页后调用 `/api/v1/channel-bindings/tokens` 生成一次性 6 位绑定码；OpenClaw 插件将可信的
 `channel`、`agentAccountId` 和 `requesterSenderId` 传给仅限回环网络的 `/api/internal/openclaw/link`，服务端只保存
@@ -45,7 +50,15 @@ npm start
 
 ## 测试
 
-测试必须使用隔离数据库。Windows 上的 UI smoke 会自行启动临时服务和 Headless Edge，创建的测试账号会在结束时删除：
+前端回归测试无需数据库或额外依赖：
+
+```sh
+npm run test:web
+```
+
+覆盖任务按钮状态、跨页缓存保留、并行加载失败、切页错误与重复点击、本地月份、菜谱来源链接和 OpenClaw 连接状态。
+
+API 和完整浏览器测试必须使用隔离数据库。Windows 上的 UI smoke 会自行启动临时服务和 Headless Edge，创建的测试账号会在结束时删除：
 
 ```powershell
 $env:DATABASE_URL='postgres://postgres:密码@127.0.0.1:5432/rainbow_cats_manual'
@@ -56,3 +69,5 @@ npm run audit:db
 ```
 
 若 Edge 不在默认安装路径，通过 `EDGE_PATH` 指定可执行文件。UI smoke 会将桌面和 `390×844` 移动视口截图写入系统临时目录。
+
+`rainbow.251104.xyz` 的生产脚本会从正式备份创建临时 PostgreSQL 数据库，并在副本上自动运行上述检查以及容器化 Playwright Chromium 验收；操作见 [`../deploy/README.zh-CN.md`](../deploy/README.zh-CN.md)。

@@ -18,6 +18,8 @@ npm start
 
 网页 API、环境变量和迁移说明见 [`server/README.md`](server/README.md)。
 
+`rainbow.251104.xyz` 的 Docker 生产发布、正式数据库副本联调、Playwright 浏览器验收和一键回退说明见 [`deploy/README.zh-CN.md`](deploy/README.zh-CN.md)。
+
 `miniprogram/`、`cloudfunctions/` 和 `prototype/` 暂时保留为历史实现和迁移参考，不作为网页运行时依赖；删除前必须完成引用审计和数据迁移演练。
 
 ## 历史小程序说明
@@ -83,7 +85,7 @@ TianAPI 菜谱：`recipeApi` 云函数会读取云函数环境变量 `TIANAPI_KE
 
 OpenClaw 业务入口：`cloudfunctions/openclawApi` 是受保护的服务端调用入口，当前支持 `listMissions`、`listMarket`、`listStorage`、`createMission`、`completeMission` 和 `purchaseGift`。部署后必须在云函数环境变量中配置 `OPENCLAW_API_TOKEN` 与 JSON 格式的 `OPENCLAW_ACTOR_MAP`（例如 `{"main":"微信用户 openId"}`）；不要将这些值写入仓库。所有操作仍在云函数中校验空间成员身份并执行事务。
 
-网页版菜谱兜底：网页版服务器会先搜索 TianAPI；精确搜索无结果时，会继续检索相关关键词。若远端服务器与 OpenClaw Gateway 部署在同一台机器，并设置 `OPENCLAW_RECIPE_ENABLED=true`，仍无结果时由 OpenClaw 生成“菜名、简介、食材、调料、步骤、小贴士”格式的参考做法。AI 结果会明确标记为“AI 生成”，不作为官方菜谱展示；Gateway 仅监听本机回环地址，不对公网开放。
+网页版 OpenClaw：服务器优先使用配置完整的独立 HTTP Gateway；未配置 URL/Token 时，可通过本机 `openclaw infer model run --gateway` 完成网页聊天和菜谱兜底。设置 `OPENCLAW_RECIPE_ENABLED=true` 会默认同时启用 CLI 聊天，也可用 `OPENCLAW_CHAT_CLI_ENABLED` 单独控制。模型只能返回回答或待确认提案，任何业务写入仍需用户在网页确认。OpenClaw 配置和状态目录只挂载到应用容器，不对公网开放。
 
 ## 网页版后端（当前主线）
 
