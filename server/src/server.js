@@ -285,7 +285,11 @@ function stripJsonFence(value) {
 }
 
 async function runOpenClawModel(prompt, model, timeout = 45000) {
-  const { stdout } = await execFileAsync('openclaw', ['infer', 'model', 'run', '--gateway', '--model', model, '--prompt', prompt, '--json'], { timeout, maxBuffer: 1024 * 1024 })
+  const args = ['infer', 'model', 'run', '--gateway', '--model', model, '--prompt', prompt, '--json']
+  // npm exposes CLI entry points as .cmd files on Windows; keep arguments out of a shell string.
+  const command = process.platform === 'win32' ? 'cmd.exe' : 'openclaw'
+  const commandArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'openclaw.cmd', ...args] : args
+  const { stdout } = await execFileAsync(command, commandArgs, { timeout, maxBuffer: 1024 * 1024, windowsHide: true })
   const response = JSON.parse(stdout)
   const output = stripJsonFence(response?.outputs?.[0]?.text)
   if (!output) throw new Error('OpenClaw 未返回内容')

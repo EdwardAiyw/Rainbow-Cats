@@ -51,11 +51,19 @@ async function cleanup() {
 
 async function main() {
   openclawDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rainbow-openclaw-'))
-  const openclawPath = path.join(openclawDir, 'openclaw')
-  fs.writeFileSync(openclawPath, `#!/usr/bin/env node
+  const openclawScript = path.join(openclawDir, 'openclaw-runner.js')
+  const openclawPath = path.join(openclawDir, process.platform === 'win32' ? 'openclaw.cmd' : 'openclaw')
+  const openclawCode = `process.stdout.write(JSON.stringify({ outputs: [{ text: JSON.stringify({ message: 'CLI Gateway 测试回答', action: null, payload: {} }) }] }))
+`
+  fs.writeFileSync(openclawScript, openclawCode)
+  if (process.platform === 'win32') {
+    fs.writeFileSync(openclawPath, `@echo off\r\n"${process.execPath}" "${openclawScript}" %*\r\n`)
+  } else {
+    fs.writeFileSync(openclawPath, `#!/usr/bin/env node
 process.stdout.write(JSON.stringify({ outputs: [{ text: JSON.stringify({ message: 'CLI Gateway 测试回答', action: null, payload: {} }) }] }))
 `)
-  fs.chmodSync(openclawPath, 0o755)
+    fs.chmodSync(openclawPath, 0o755)
+  }
   child = spawn(process.execPath, ['src/server.js'], {
     cwd: __dirname + '/..',
     env: {
