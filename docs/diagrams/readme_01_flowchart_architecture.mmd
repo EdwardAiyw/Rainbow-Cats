@@ -1,0 +1,20 @@
+flowchart TD
+    User([👥 两位成员]) -->|HTTPS| Web[🌐 原生 Web 客户端<br/>HTML · CSS · JavaScript]
+    Web -->|REST /api/v1<br/>Cookie 或 Bearer Token| Server[⚙️ Node.js 服务端<br/>认证 · 业务规则 · 静态资源]
+    Server -->|参数化 SQL 与事务| DB[(💾 PostgreSQL)]
+
+    Server -.->|可选：菜谱搜索| TianAPI[🍳 TianAPI]
+    Server -.->|可选：日历同步| CalDAV[📅 CalDAV 服务]
+    Server -.->|可选：HTTP 或本机 CLI| OpenClaw[🤖 OpenClaw Gateway]
+    WeChat[💬 微信私聊] -.->|可信运行时身份| Plugin[🔌 OpenClaw 插件]
+    Plugin -.->|仅回环网络 /api/internal| Server
+
+    classDef client fill:#FFE8EC,stroke:#9B5C6B,stroke-width:2px,color:#3D2930
+    classDef service fill:#DFF4EA,stroke:#377B63,stroke-width:2px,color:#173E31
+    classDef data fill:#E4EEFF,stroke:#4169A1,stroke-width:2px,color:#1B3157
+    classDef optional fill:#FFF3D6,stroke:#9A7427,stroke-width:2px,color:#4B3810
+
+    class User,Web,WeChat client
+    class Server,Plugin service
+    class DB data
+    class TianAPI,CalDAV,OpenClaw optional
