@@ -2,6 +2,40 @@
 
 本文件用于记录 Rainbow-Cats 每日开发进展、验证结果和下一步计划。每天完成工作后，在顶部新增当天日期的小节。
 
+## 2026-09-25
+
+### 今日完成
+
+- 确认 GitHub 仓库已从 `EdwardAiyw/Rainbow-Cats-Personal-WeChat-MiniProgram` 更名为 `EdwardAiyw/Rainbow-Cats`，与当前产品名称和 `web/` + `server/` 主线保持一致。
+- 将本地 `origin` 更新为 `https://github.com/EdwardAiyw/Rainbow-Cats.git`，并同步修正 README 中的克隆地址和进入服务端目录命令。
+- 已将 README 更新提交并推送到 `main`，提交为 `321e1a4 docs: update repository clone URL`。
+- 复核当前交付状态：生产站点在线，数据库健康，本地分支与远程主分支一致，没有未提交文件；当前剩余工作仅为真实移动设备验收，不存在已知发布阻断项。
+
+### 验证情况
+
+- `https://rainbow.251104.xyz/api/v1/health` 返回 `ok: true`，服务名为 `rainbow-cats`，数据库状态为 `ready`。
+- `npm run test:web` 通过，13/13 项网页回归测试通过。
+- `node --check web/app.js` 与 `node --check server/src/server.js` 通过。
+- `git fetch origin` 后，本地 `HEAD` 与 `origin/main` 均为 `321e1a4035c5bfd5bb9e0e7951e5c7f1d1ff7c35`。
+- `git ls-remote` 可正常读取新远程仓库；工作区在写入本日报前为干净状态。
+
+### 当前状态
+
+- 产品主线：`web/` + `server/`，已部署至生产环境。
+- GitHub 仓库：已完成改名并正常同步。
+- 生产服务：在线，数据库连接正常。
+- 自动化验证：核心网页回归测试通过。
+- 发布判断：无已知阻断项，可以继续正常使用；真机验收属于补充验证。
+
+### 当前待办
+
+- [ ] 在 iPhone Safari 与 Android Chrome 真机复核微信绑定入口、确认码交互、网页会话恢复和移动端布局。
+
+### 明日计划（2026-09-26）
+
+1. 使用 iPhone Safari 和 Android Chrome 完成生产环境真机验收。
+2. 如真机验收发现问题，记录设备、系统版本、浏览器版本和复现步骤后再做针对性修复。
+
 ## 2026-09-24
 
 ### 今日完成
