@@ -12,6 +12,7 @@ Rainbow-Cats 是一个面向伴侣、家人或固定搭档的双人生活管理�
 当前产品主线是原生 Web 客户端 `web/` 与 Node.js + PostgreSQL 服务端 `server/`。早期微信小程序及云函数代码仍保留在仓库中，用于历史归档和迁移参考，但不再是正式产品入口。
 
 - 在线站点：<https://rainbow.251104.xyz>
+- 使用说明书：[docs/使用说明书.md](docs/使用说明书.md)
 - 使用说明：[USER_GUIDE.md](USER_GUIDE.md)
 - 服务端文档：[server/README.md](server/README.md)
 - 生产发布：[deploy/README.zh-CN.md](deploy/README.zh-CN.md)
@@ -319,6 +320,7 @@ Rainbow-Cats/
 
 | 文档 | 用途 |
 | --- | --- |
+| [docs/使用说明书.md](docs/使用说明书.md) | 面向普通用户的完整网页操作手册 |
 | [USER_GUIDE.md](USER_GUIDE.md) | 面向使用者的功能、本地部署与常见问题说明 |
 | [server/README.md](server/README.md) | 服务端环境变量、API 领域、迁移、审计与测试 |
 | [deploy/README.zh-CN.md](deploy/README.zh-CN.md) | 当前生产服务器的发布、验收和回退手册 |
