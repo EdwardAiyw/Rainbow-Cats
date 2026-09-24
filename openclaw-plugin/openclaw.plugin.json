@@ -1,0 +1,22 @@
+{
+  "id": "rainbow-cats",
+  "name": "Rainbow Cats",
+  "description": "将可信的 AI_1 或小暖微信私聊连接到 Rainbow-Cats 双人空间。",
+  "version": "1.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "rainbow_link",
+      "rainbow_context",
+      "rainbow_propose",
+      "rainbow_confirm"
+    ]
+  }
+}

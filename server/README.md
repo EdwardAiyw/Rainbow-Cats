@@ -41,12 +41,13 @@ npm start
 
 微信渠道绑定：登录网页后调用 `/api/v1/channel-bindings/tokens` 生成一次性 6 位绑定码；OpenClaw 插件将可信的
 `channel`、`agentAccountId` 和 `requesterSenderId` 传给仅限回环网络的 `/api/internal/openclaw/link`，服务端只保存
-发送者身份的 HMAC 索引，不接受模型传入的 `userId` 或 `spaceId`。内部提案接口会返回一次性确认码，确认码过期或重复使用
-不会写入业务数据。生产环境还必须在 Caddy/Nginx 层拒绝公网访问 `/api/internal/*`。
+发送者身份的 HMAC 索引，不接受模型传入的 `userId` 或 `spaceId`。`/context` 按当前发送者返回双方身份、可用任务和礼物、本人收藏、近期日程、支出与菜谱快照。内部提案接口会返回一次性确认码，确认码过期、跨身份、重复使用或连续 5 次错误都不会写入业务数据。生产环境还必须在 Caddy/Nginx 层拒绝公网访问 `/api/internal/*`。
 
 ## 数据迁移和审计
 
 `tools/migrate-cloudbase.js` 默认只做 dry-run；正式迁移前必须备份并安排停写窗口。`npm run audit:db` 只读检查空间成员、孤立记录和过期会话。
+
+删除审计发现的无空间成员关系历史账号时，使用 `deploy/cleanup-orphan-users.sh <预期数量>`。脚本会先备份整库，并在单一事务内校验数量与业务引用；数量变化或仍有业务引用时不会删除。
 
 ## 测试
 
@@ -65,6 +66,7 @@ $env:DATABASE_URL='postgres://postgres:密码@127.0.0.1:5432/rainbow_cats_manual
 npm run check
 npm run test:api
 npm run test:ui
+npm run test:ui-two-user
 npm run audit:db
 ```
 

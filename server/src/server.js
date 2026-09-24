@@ -31,6 +31,7 @@ const OPENCLAW_CHAT_CLI_ENABLED = process.env.OPENCLAW_CHAT_CLI_ENABLED
 const OPENCLAW_CHAT_MODEL = process.env.OPENCLAW_CHAT_MODEL || OPENCLAW_RECIPE_MODEL
 const OPENCLAW_CHAT_DAILY_LIMIT = Math.max(1, Number(process.env.OPENCLAW_CHAT_DAILY_LIMIT || 100))
 const MAX_BODY_BYTES = Math.max(1024, Number(process.env.MAX_BODY_BYTES || 65536))
+const MAX_CONFIRMATION_ATTEMPTS = 5
 const SECURE_COOKIE = /^https:\/\//i.test(ORIGIN)
 const execFileAsync = promisify(execFile)
 const OPENCLAW_ALLOWED_ACTIONS = ['create_mission', 'create_market_item', 'create_expense', 'create_event', 'complete_mission', 'purchase_market_item']
@@ -190,7 +191,7 @@ async function channelBindingToken(req, res, user) {
   return send(res, 201, ok({ id: result.rows[0].id, code: raw, expiresAt: result.rows[0].expires_at }))
 }
 async function listChannelBindings(res, user) {
-  const result = await query('SELECT id,channel,agent_account_id AS "agentAccountId",created_at AS "createdAt",last_seen_at AS "lastSeenAt" FROM channel_identities WHERE user_id=$1 AND space_id=$2 ORDER BY created_at DESC', [user.id, user.space_id])
+  const result = await query('SELECT id,channel,agent_label AS "agentLabel",created_at AS "createdAt",last_seen_at AS "lastSeenAt" FROM channel_identities WHERE user_id=$1 AND space_id=$2 ORDER BY created_at DESC', [user.id, user.space_id])
   return send(res, 200, ok(result.rows))
 }
 async function deleteChannelBinding(res, user, id) {
@@ -200,20 +201,48 @@ async function deleteChannelBinding(res, user, id) {
   return send(res, 200, ok({ id: result.rows[0].id }))
 }
 async function trustedIdentity(input) {
-  const channel = clean(input.channel, 40); const agentAccountId = clean(input.agentAccountId, 160); const requesterSenderId = clean(input.requesterSenderId, 300)
+  const channel = clean(input.channel, 40); const agentAccountId = clean(input.agentAccountId, 160); const requesterSenderId = clean(input.requesterSenderId, 300); const agentLabel = clean(input.agentLabel, 40) || '微信助手'
   if (!channel || !agentAccountId || !requesterSenderId) throw Object.assign(new Error('缺少可信渠道身份'), { status: 400, code: 'IDENTITY_REQUIRED' })
   const senderKeyHash = identityHash(channel, agentAccountId, requesterSenderId)
   const result = await query('SELECT ci.*, u.display_name, u.username, sm.credit FROM channel_identities ci JOIN users u ON u.id=ci.user_id JOIN space_members sm ON sm.space_id=ci.space_id AND sm.user_id=ci.user_id WHERE ci.channel=$1 AND ci.agent_account_id=$2 AND ci.sender_key_hash=$3', [channel, agentAccountId, senderKeyHash])
   if (!result.rows.length) throw Object.assign(new Error('该微信身份尚未绑定，请先在网页生成绑定码'), { status: 403, code: 'IDENTITY_NOT_BOUND' })
-  await query('UPDATE channel_identities SET last_seen_at=now() WHERE id=$1', [result.rows[0].id])
-  return { ...result.rows[0], channel, agentAccountId, senderKeyHash }
+  await query('UPDATE channel_identities SET last_seen_at=now(),agent_label=$2 WHERE id=$1', [result.rows[0].id, agentLabel])
+  return { ...result.rows[0], channel, agentAccountId, agentLabel, senderKeyHash }
+}
+
+async function openClawContext(identity) {
+  const [members, missions, market, storage, events, expenses, recipes] = await Promise.all([
+    query('SELECT u.id,u.display_name,sm.credit FROM space_members sm JOIN users u ON u.id=sm.user_id WHERE sm.space_id=$1 ORDER BY sm.created_at', [identity.space_id]),
+    query('SELECT id,title,description,credit,creator_id,created_at FROM missions WHERE space_id=$1 AND available=true ORDER BY created_at DESC LIMIT 50', [identity.space_id]),
+    query('SELECT id,title,description,credit,creator_id,created_at FROM market_items WHERE space_id=$1 AND available=true ORDER BY created_at DESC LIMIT 50', [identity.space_id]),
+    query('SELECT id,title,description,credit,created_at FROM storage_items WHERE space_id=$1 AND owner_id=$2 AND available=true ORDER BY created_at DESC LIMIT 50', [identity.space_id, identity.user_id]),
+    query("SELECT id,title,notes,starts_at,ends_at,all_day,source FROM calendar_events WHERE space_id=$1 AND ends_at>=now()-interval '1 day' ORDER BY starts_at LIMIT 20", [identity.space_id]),
+    query('SELECT e.id,e.amount,e.category,e.note,e.spent_on,e.created_by,e.created_at FROM expenses e WHERE e.space_id=$1 ORDER BY e.spent_on DESC,e.created_at DESC LIMIT 20', [identity.space_id]),
+    query('SELECT id,title,description,flavor,difficulty,minutes,cuisine,is_preset,creator_id FROM recipes WHERE space_id=$1 ORDER BY created_at DESC LIMIT 30', [identity.space_id])
+  ])
+  const roleFor = userId => userId === identity.user_id ? 'self' : 'partner'
+  const current = members.rows.find(member => member.id === identity.user_id)
+  const partner = members.rows.find(member => member.id !== identity.user_id)
+  return {
+    identity: {
+      agentLabel: identity.agentLabel,
+      currentUser: current ? { displayName: current.display_name, credit: current.credit } : null,
+      partner: partner ? { displayName: partner.display_name, credit: partner.credit } : null
+    },
+    missions: missions.rows.map(item => ({ id: item.id, title: item.title, description: item.description, credit: item.credit, creator: roleFor(item.creator_id), canComplete: item.creator_id !== identity.user_id, createdAt: item.created_at })),
+    marketItems: market.rows.map(item => ({ id: item.id, title: item.title, description: item.description, credit: item.credit, creator: roleFor(item.creator_id), canPurchase: item.creator_id !== identity.user_id && Number(current?.credit || 0) >= item.credit, createdAt: item.created_at })),
+    myStorage: storage.rows.map(item => ({ id: item.id, title: item.title, description: item.description, credit: item.credit, createdAt: item.created_at })),
+    upcomingEvents: events.rows.map(item => ({ id: item.id, title: item.title, notes: item.notes, startsAt: item.starts_at, endsAt: item.ends_at, allDay: item.all_day, source: item.source })),
+    recentExpenses: expenses.rows.map(item => ({ id: item.id, amount: item.amount, category: item.category, note: item.note, spentOn: item.spent_on, creator: roleFor(item.created_by) })),
+    recipes: recipes.rows.map(item => ({ id: item.id, title: item.title, description: item.description, flavor: item.flavor, difficulty: item.difficulty, minutes: item.minutes, cuisine: item.cuisine, preset: item.is_preset, creator: item.creator_id ? roleFor(item.creator_id) : 'preset' }))
+  }
 }
 async function handleOpenClawInternal(req, res, pathname) {
   if (!internalAuthorized(req)) return send(res, 403, fail('仅允许本机 OpenClaw 调用', 'FORBIDDEN'))
   if (req.method !== 'POST') return send(res, 405, fail('仅支持 POST', 'METHOD_NOT_ALLOWED'))
   const input = await body(req)
   if (pathname === '/api/internal/openclaw/link') {
-    const channel = clean(input.channel, 40); const agentAccountId = clean(input.agentAccountId, 160); const requesterSenderId = clean(input.requesterSenderId, 300); const code = clean(input.code, 20)
+    const channel = clean(input.channel, 40); const agentAccountId = clean(input.agentAccountId, 160); const requesterSenderId = clean(input.requesterSenderId, 300); const agentLabel = clean(input.agentLabel, 40) || '微信助手'; const code = clean(input.code, 20)
     if (!channel || !agentAccountId || !requesterSenderId || !/^\d{6}$/.test(code)) return send(res, 400, fail('渠道、发送者和 6 位绑定码不能为空'))
     const client = await pool.connect()
     try {
@@ -224,7 +253,8 @@ async function handleOpenClawInternal(req, res, pathname) {
       const existing = await client.query('SELECT id,user_id FROM channel_identities WHERE channel=$1 AND agent_account_id=$2 AND sender_key_hash=$3', [channel, agentAccountId, senderKeyHash])
       if (existing.rows.length && existing.rows[0].user_id !== row.user_id) { await client.query('ROLLBACK'); return send(res, 409, fail('该微信身份已绑定其他账号', 'IDENTITY_ALREADY_BOUND')) }
       let identityId = existing.rows[0]?.id
-      if (!existing.rows.length) { const identity = await client.query('INSERT INTO channel_identities(channel,agent_account_id,sender_key_hash,user_id,space_id) VALUES($1,$2,$3,$4,$5) RETURNING id', [channel, agentAccountId, senderKeyHash, row.user_id, row.space_id]); identityId = identity.rows[0].id }
+      if (!existing.rows.length) { const identity = await client.query('INSERT INTO channel_identities(channel,agent_account_id,agent_label,sender_key_hash,user_id,space_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [channel, agentAccountId, agentLabel, senderKeyHash, row.user_id, row.space_id]); identityId = identity.rows[0].id }
+      else await client.query('UPDATE channel_identities SET agent_label=$2,last_seen_at=now() WHERE id=$1', [identityId, agentLabel])
       await client.query('UPDATE identity_link_tokens SET used_at=now() WHERE id=$1', [row.id]); await client.query('COMMIT')
       await withAudit({ id: row.user_id, space_id: row.space_id }, 'channel.bind', 'channel_identity', identityId, { channel, agentAccountId })
       return send(res, 200, ok({ bound: true, userId: row.user_id, spaceId: row.space_id }))
@@ -232,7 +262,7 @@ async function handleOpenClawInternal(req, res, pathname) {
   }
   if (pathname === '/api/internal/openclaw/context') {
     const identity = await trustedIdentity(input)
-    return send(res, 200, ok({ user: { id: identity.user_id, username: identity.username, displayName: identity.display_name, credit: identity.credit }, spaceId: identity.space_id, channel: identity.channel, agentAccountId: identity.agentAccountId }))
+    return send(res, 200, ok(await openClawContext(identity)))
   }
   if (pathname === '/api/internal/openclaw/proposals') {
     const identity = await trustedIdentity(input); const action = clean(input.action, 80)
@@ -251,8 +281,14 @@ async function handleOpenClawInternal(req, res, pathname) {
       if (!found.rows.length) { await client.query('ROLLBACK'); return send(res, 404, fail('提案不存在或已处理', 'PROPOSAL_NOT_FOUND')) }
       const proposal = found.rows[0]
       if (proposal.source_channel !== identity.channel || proposal.source_agent_account_id !== identity.agentAccountId || proposal.source_sender_key_hash !== identity.senderKeyHash) { await client.query('ROLLBACK'); return send(res, 403, fail('该提案不属于当前微信身份', 'PROPOSAL_IDENTITY_MISMATCH')) }
-      if (proposal.confirmation_expires_at <= new Date()) { await client.query('ROLLBACK'); return send(res, 400, fail('确认码已过期', 'CONFIRMATION_EXPIRED')) }
-      if (!hashMatches(code, proposal.confirmation_code_hash)) { await client.query('UPDATE ai_action_proposals SET confirmation_attempts=confirmation_attempts+1 WHERE id=$1', [proposal.id]); await client.query('COMMIT'); return send(res, 400, fail('确认码错误', 'INVALID_CONFIRMATION_CODE')) }
+      if (proposal.confirmation_expires_at <= new Date()) { await client.query("UPDATE ai_action_proposals SET status='expired' WHERE id=$1", [proposal.id]); await client.query('COMMIT'); return send(res, 400, fail('确认码已过期', 'CONFIRMATION_EXPIRED')) }
+      if (proposal.confirmation_attempts >= MAX_CONFIRMATION_ATTEMPTS) { await client.query("UPDATE ai_action_proposals SET status='rejected' WHERE id=$1", [proposal.id]); await client.query('COMMIT'); return send(res, 400, fail('错误次数过多，请重新发起提案', 'CONFIRMATION_LOCKED')) }
+      if (!hashMatches(code, proposal.confirmation_code_hash)) {
+        const attempts = proposal.confirmation_attempts + 1
+        await client.query("UPDATE ai_action_proposals SET confirmation_attempts=$2::integer,status=CASE WHEN $2::integer >= $3::integer THEN 'rejected' ELSE status END WHERE id=$1", [proposal.id, attempts, MAX_CONFIRMATION_ATTEMPTS])
+        await client.query('COMMIT')
+        return send(res, 400, fail(attempts >= MAX_CONFIRMATION_ATTEMPTS ? '错误次数过多，请重新发起提案' : `确认码错误，还可尝试 ${MAX_CONFIRMATION_ATTEMPTS - attempts} 次`, attempts >= MAX_CONFIRMATION_ATTEMPTS ? 'CONFIRMATION_LOCKED' : 'INVALID_CONFIRMATION_CODE'))
+      }
       const user = await query('SELECT u.*, sm.space_id, sm.credit FROM users u JOIN space_members sm ON sm.user_id=u.id WHERE u.id=$1 AND sm.space_id=$2', [identity.user_id, identity.space_id]); const result = await applyProposal(client, user.rows[0], proposal)
       const updated = await client.query('UPDATE ai_action_proposals SET status=\'confirmed\',result=$1,confirmed_at=now(),executed_at=now(),confirmed_by_user_id=$2 WHERE id=$3 RETURNING id,status,result,confirmed_at', [result || {}, identity.user_id, proposal.id]); await client.query('COMMIT'); await withAudit(user.rows[0], 'ai.proposal.confirm', 'ai_action_proposal', proposal.id, { source: identity.channel }); return send(res, 200, ok(updated.rows[0]))
     } catch (error) { await client.query('ROLLBACK'); if (error.status) return send(res, error.status, fail(error.message)); throw error } finally { client.release() }
@@ -494,6 +530,19 @@ async function route(req, res, pathname, method, search) {
           else await client.query('DELETE FROM spaces WHERE id=$1', [membership.space_id])
         }
       }
+      // Remove the account's owned records and anonymize references retained by the shared space.
+      await client.query('UPDATE missions SET completed_by=NULL WHERE completed_by=$1', [user.id])
+      await client.query('UPDATE market_items SET purchased_by=NULL WHERE purchased_by=$1', [user.id])
+      await client.query('UPDATE calendar_events SET updated_by=NULL WHERE updated_by=$1', [user.id])
+      await client.query('UPDATE ai_action_proposals SET confirmed_by_user_id=NULL WHERE confirmed_by_user_id=$1', [user.id])
+      await client.query('UPDATE storage_items SET source_item_id=NULL WHERE source_item_id IN (SELECT id FROM market_items WHERE creator_id=$1)', [user.id])
+      await client.query('DELETE FROM missions WHERE creator_id=$1', [user.id])
+      await client.query('DELETE FROM market_items WHERE creator_id=$1', [user.id])
+      await client.query('DELETE FROM storage_items WHERE owner_id=$1', [user.id])
+      await client.query('DELETE FROM recipes WHERE creator_id=$1', [user.id])
+      await client.query('DELETE FROM expenses WHERE created_by=$1', [user.id])
+      await client.query('DELETE FROM photos WHERE uploaded_by=$1', [user.id])
+      await client.query('DELETE FROM ai_action_proposals WHERE created_by=$1', [user.id])
       await client.query('DELETE FROM users WHERE id=$1', [user.id])
       await client.query('COMMIT')
       clearSessionCookie(res); return send(res, 200, ok(null))

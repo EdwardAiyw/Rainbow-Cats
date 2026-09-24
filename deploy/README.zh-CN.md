@@ -20,11 +20,13 @@
 rm -rf /root/rainbow-production-release
 mkdir -p /root/rainbow-production-release
 tar -xzf /root/rainbow-production-release.tar.gz \
-  --strip-components=1 \
   -C /root/rainbow-production-release
 cd /root/rainbow-production-release
 bash deploy/deploy-production.sh
 ```
+
+发布包根目录直接包含 `deploy/`、`server/` 和 `web/`，因此解包时不要使用
+`--strip-components`。从 Windows 制作发布包时还必须确保 `*.sh` 使用 LF 换行。
 
 脚本依次执行：
 
@@ -34,7 +36,7 @@ bash deploy/deploy-production.sh
 4. 从正式备份创建临时数据库，并在副本上执行全部表结构升级。
 5. 在数据库副本上执行语法检查、13 项网页回归、API 烟雾测试、数据完整性审计和 Chromium 端到端操作。
 6. 副本全部通过后才升级正式数据库，并在 `127.0.0.1:3101` 启动候选容器。
-7. 验证容器内 OpenClaw 版本与 CLI Gateway 推理通道；配置目录保持只读，只有 `state/` 子目录可写。
+7. 验证容器内 OpenClaw 版本与 CLI Gateway 连通性；配置目录保持只读，只有 `state/` 子目录可写。模型供应商的瞬时响应不作为网站发布门槛。
 8. 校验并重载 Caddy，将 `rainbow.251104.xyz` 切换到新容器；公网健康检查通过后停止旧 systemd 服务。后续升级会保留上一发布目录和镜像，用于失败自动恢复及人工回退。
 
 浏览器验收会实际完成“创建空间 → 创建任务 → 退出 → 账号密码登录 → 刷新会话 → 移动端布局 → 删除测试账号”，测试数据只写入临时数据库副本。
@@ -59,6 +61,8 @@ ls -lh "$latest_backup/browser/"
 健康接口必须返回 `ok: true` 和 `database: "ready"`；容器状态必须为 `Up` 或 `healthy`；`browser-report.json` 必须包含 `"ok": true`。浏览器目录同时保存桌面端和移动端截图。
 
 登录网页后，AI 助手页还应显示“OpenClaw 已连接 · 本机安全通道”。该状态来自鉴权接口 `/api/v1/openclaw/status`，不会公开令牌。生产 `.env` 已有 `OPENCLAW_RECIPE_ENABLED=true` 时，CLI 聊天会自动启用；若要显式控制，可设置 `OPENCLAW_CHAT_CLI_ENABLED=true|false`。
+
+OpenClaw 插件升级后，使用 `deploy/install-openclaw-agent-rules.sh` 将 `deploy/openclaw-agent-rules.md` 同步到 AI_1 和小暖的工作区。脚本只替换带 `rainbow-cats-rules` 标记的章节，不覆盖其他 Agent 规则，也不包含真实微信标识或令牌。
 
 ## 回退
 

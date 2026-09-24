@@ -8,6 +8,7 @@
     "check": "node --check src/server.js",
     "test:api": "node test/api-smoke.js",
     "test:ui": "node test/ui-smoke.js",
+    "test:ui-two-user": "node test/ui-two-user.js",
     "audit:db": "node tools/audit-db.js",
     "migrate:cloudbase": "node tools/migrate-cloudbase.js",
     "test:web": "node --test test/web-regression.js"

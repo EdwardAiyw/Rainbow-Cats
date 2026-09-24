@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS channel_identities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   channel varchar(40) NOT NULL,
   agent_account_id varchar(160) NOT NULL,
+  agent_label varchar(40) NOT NULL DEFAULT '微信助手',
   sender_key_hash char(64) NOT NULL,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   space_id uuid NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS channel_identities (
   UNIQUE(channel, agent_account_id, sender_key_hash),
   UNIQUE(channel, agent_account_id, user_id)
 );
+ALTER TABLE channel_identities ADD COLUMN IF NOT EXISTS agent_label varchar(40) NOT NULL DEFAULT '微信助手';
 CREATE INDEX IF NOT EXISTS channel_identities_user ON channel_identities(user_id, space_id);
 CREATE TABLE IF NOT EXISTS identity_link_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

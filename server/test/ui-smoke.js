@@ -164,6 +164,7 @@ async function main() {
   ]
   for (const [view, title] of views) {
     await evaluate(`document.querySelector('.sidebar [data-view="${view}"]').click()`)
+    await waitFor(() => evaluate(`!document.querySelector('#app')?.hasAttribute('aria-busy')`), `${title} navigation timeout`)
     await waitFor(() => evaluate(`document.querySelector('.sidebar [data-view="${view}"]')?.classList.contains('active')`), `${title} 页面加载失败`)
     const layout = await evaluate(`({
       title: document.querySelector('.topbar h1')?.textContent,

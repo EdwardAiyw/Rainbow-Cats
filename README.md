@@ -18,7 +18,9 @@ npm start
 
 网页 API、环境变量和迁移说明见 [`server/README.md`](server/README.md)。
 
-`rainbow.251104.xyz` 的 Docker 生产发布、正式数据库副本联调、Playwright 浏览器验收和一键回退说明见 [`deploy/README.zh-CN.md`](deploy/README.zh-CN.md)。
+`https://rainbow.251104.xyz` 的 Docker 生产发布、正式数据库副本联调、Playwright 浏览器验收和一键回退说明见 [`deploy/README.zh-CN.md`](deploy/README.zh-CN.md)。
+
+服务器 OpenClaw 微信接入插件位于 [`openclaw-plugin/`](openclaw-plugin/README.md)。插件只使用 OpenClaw 运行时注入的可信微信身份，并通过服务器回环地址调用内部 API；内部令牌和允许的 AI 账号仅在服务器环境变量中配置。
 
 `miniprogram/`、`cloudfunctions/` 和 `prototype/` 暂时保留为历史实现和迁移参考，不作为网页运行时依赖；删除前必须完成引用审计和数据迁移演练。
 

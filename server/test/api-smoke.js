@@ -7,6 +7,8 @@ const { Pool } = require('pg')
 
 const port = Number(process.env.TEST_PORT || 3417)
 const baseUrl = `http://127.0.0.1:${port}/api/v1`
+const internalBaseUrl = `http://127.0.0.1:${port}/api/internal/openclaw`
+const internalToken = 'rainbow-cats-test-internal-token'
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('请先设置 DATABASE_URL，再运行 npm run test:api')
 
@@ -26,6 +28,22 @@ async function request(path, options = {}) {
   if (!response.ok || !payload.ok) {
     const error = new Error(payload.error?.message || `请求失败：${response.status}`)
     error.status = response.status
+    throw error
+  }
+  return payload.data
+}
+
+async function internalRequest(path, identity, requestBody = {}) {
+  const response = await fetch(internalBaseUrl + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OpenClaw-Internal-Token': internalToken },
+    body: JSON.stringify({ ...identity, ...requestBody })
+  })
+  const payload = await response.json()
+  if (!response.ok || !payload.ok) {
+    const error = new Error(payload.error?.message || `内部请求失败：${response.status}`)
+    error.status = response.status
+    error.code = payload.error?.code
     throw error
   }
   return payload.data
@@ -71,8 +89,11 @@ process.stdout.write(JSON.stringify({ outputs: [{ text: JSON.stringify({ message
       DATABASE_URL: databaseUrl,
       PORT: String(port),
       PATH: `${openclawDir}${path.delimiter}${process.env.PATH || ''}`,
+      TIANAPI_KEY: '',
       OPENCLAW_CHAT_URL: '',
       OPENCLAW_GATEWAY_TOKEN: '',
+      OPENCLAW_INTERNAL_TOKEN: internalToken,
+      OPENCLAW_IDENTITY_SECRET: 'rainbow-cats-test-identity-secret',
       OPENCLAW_CHAT_CLI_ENABLED: 'true',
       OPENCLAW_CHAT_MODEL: 'test/mock',
       OPENCLAW_CHAT_DAILY_LIMIT: '100'
@@ -103,10 +124,53 @@ process.stdout.write(JSON.stringify({ outputs: [{ text: JSON.stringify({ message
     const joined = await request('/auth/join-space', { method: 'POST', body: JSON.stringify({ displayName: guestName, username: guestUsername, password, inviteCode: created.inviteCode }) })
     const guestHeaders = { Authorization: `Bearer ${joined.token}` }
 
+    const ownerLink = await request('/channel-bindings/tokens', { method: 'POST', headers: ownerHeaders })
+    const guestLink = await request('/channel-bindings/tokens', { method: 'POST', headers: guestHeaders })
+    const ownerIdentity = { channel: 'openclaw-weixin', agentAccountId: 'test-ai-1', requesterSenderId: 'test-owner-sender', agentLabel: 'AI_1' }
+    const guestIdentity = { channel: 'openclaw-weixin', agentAccountId: 'test-xiaonuan', requesterSenderId: 'test-guest-sender', agentLabel: '小暖' }
+    await internalRequest('/link', ownerIdentity, { code: ownerLink.code })
+    await internalRequest('/link', guestIdentity, { code: guestLink.code })
+    const ownerBindings = await request('/channel-bindings', { headers: ownerHeaders })
+    assert.equal(ownerBindings[0].agentLabel, 'AI_1')
+    assert.equal('agentAccountId' in ownerBindings[0], false)
+
     assert.equal((await request('/space', { headers: ownerHeaders })).members.length, 2)
     await expectFailure(() => request('/auth/join-space', { method: 'POST', body: JSON.stringify({ displayName: 'third-user', inviteCode: created.inviteCode }) }), 400)
 
     const mission = await request('/missions', { method: 'POST', headers: ownerHeaders, body: JSON.stringify({ title: 'smoke-mission', desc: 'transaction', credit: 25 }) })
+    const ownerContext = await internalRequest('/context', ownerIdentity)
+    const guestContext = await internalRequest('/context', guestIdentity)
+    assert.equal(ownerContext.identity.agentLabel, 'AI_1')
+    assert.equal(ownerContext.identity.currentUser.displayName, ownerName)
+    assert.equal(ownerContext.identity.partner.displayName, guestName)
+    assert.equal(guestContext.identity.agentLabel, '小暖')
+    assert.equal(guestContext.identity.currentUser.displayName, guestName)
+    assert.equal(guestContext.identity.partner.displayName, ownerName)
+    assert.equal(ownerContext.missions.find(item => item.id === mission.id).canComplete, false)
+    assert.equal(guestContext.missions.find(item => item.id === mission.id).canComplete, true)
+
+    const crossProposal = await internalRequest('/proposals', ownerIdentity, { action: 'create_mission', payload: { title: 'identity-bound', credit: 5 } })
+    await assert.rejects(() => internalRequest('/confirm', guestIdentity, { proposalId: crossProposal.id, confirmationCode: crossProposal.confirmationCode }), error => error.status === 404 || error.code === 'PROPOSAL_IDENTITY_MISMATCH')
+    const confirmedProposal = await internalRequest('/confirm', ownerIdentity, { proposalId: crossProposal.id, confirmationCode: crossProposal.confirmationCode })
+    assert.equal(confirmedProposal.status, 'confirmed')
+    await assert.rejects(() => internalRequest('/confirm', ownerIdentity, { proposalId: crossProposal.id, confirmationCode: crossProposal.confirmationCode }), error => error.status === 404)
+
+    const lockedProposal = await internalRequest('/proposals', ownerIdentity, { action: 'create_mission', payload: { title: 'must-not-run', credit: 5 } })
+    const wrongConfirmationCode = lockedProposal.confirmationCode === '000000' ? '000001' : '000000'
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await assert.rejects(() => internalRequest('/confirm', ownerIdentity, { proposalId: lockedProposal.id, confirmationCode: wrongConfirmationCode }), error => error.status === 400 && (attempt < 5 ? error.code === 'INVALID_CONFIRMATION_CODE' : error.code === 'CONFIRMATION_LOCKED'))
+    }
+    await assert.rejects(() => internalRequest('/confirm', ownerIdentity, { proposalId: lockedProposal.id, confirmationCode: lockedProposal.confirmationCode }), error => error.status === 404)
+    const verificationPool = new Pool({ connectionString: databaseUrl })
+    try {
+      const locked = await verificationPool.query('SELECT status,confirmation_attempts FROM ai_action_proposals WHERE id=$1', [lockedProposal.id])
+      assert.deepEqual(locked.rows[0], { status: 'rejected', confirmation_attempts: 5 })
+      const expiringProposal = await internalRequest('/proposals', ownerIdentity, { action: 'create_mission', payload: { title: 'expired-action', credit: 5 } })
+      await verificationPool.query("UPDATE ai_action_proposals SET confirmation_expires_at=now()-interval '1 minute' WHERE id=$1", [expiringProposal.id])
+      await assert.rejects(() => internalRequest('/confirm', ownerIdentity, { proposalId: expiringProposal.id, confirmationCode: expiringProposal.confirmationCode }), error => error.code === 'CONFIRMATION_EXPIRED')
+      const expired = await verificationPool.query('SELECT status FROM ai_action_proposals WHERE id=$1', [expiringProposal.id])
+      assert.equal(expired.rows[0].status, 'expired')
+    } finally { await verificationPool.end() }
     await request(`/missions/${mission.id}/complete`, { method: 'POST', headers: guestHeaders })
     await expectFailure(() => request(`/missions/${mission.id}/complete`, { method: 'POST', headers: guestHeaders }), 409)
     assert.equal((await request('/me', { headers: ownerHeaders })).credit, 25)

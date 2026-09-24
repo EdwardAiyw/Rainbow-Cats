@@ -1,6 +1,6 @@
 # HTML 全面迁移与 OpenClaw 执行清单
 
-更新时间：2026-09-20
+更新时间：2026-09-24
 
 ## 已直接完成
 
@@ -17,12 +17,15 @@
 | 项目 | 结果 |
 | --- | --- |
 | OpenClaw CLI | 已安装，版本 `2026.7.1-2` |
-| CLI Gateway 推理 | 已通过容器内 `openclaw infer model run --gateway` 实测 |
-| `OPENCLAW_API_TOKEN` | 未配置 |
-| `OPENCLAW_ACTOR_MAP` | 未配置 |
-| `OPENCLAW_CHAT_URL` / `OPENCLAW_GATEWAY_TOKEN` | 未配置；当前不再阻塞网页聊天 |
+| OpenClaw Gateway | `openclaw gateway status` 连通性检查通过 |
+| Rainbow-Cats 插件 | `1.1.0` 已启用，插件校验和 4 项测试通过 |
+| 微信绑定 | AI_1 与小暖分别绑定到当前发送者的网页用户；两条身份链相互独立 |
+| `OPENCLAW_INTERNAL_TOKEN` / `RAINBOW_CATS_AGENT_ACCOUNT_IDS` | 已在服务器安全环境中配置，真实值不进入仓库 |
+| `OPENCLAW_API_TOKEN` / `OPENCLAW_ACTOR_MAP` | 历史 CloudBase 动作接口未启用，不影响当前插件链路 |
+| `OPENCLAW_CHAT_URL` / `OPENCLAW_GATEWAY_TOKEN` | 未配置独立 HTTP Gateway；当前使用本机 CLI Gateway |
 | `OPENCLAW_RECIPE_ENABLED` | 已启用，因此默认同时启用 CLI 网页聊天 |
 | PostgreSQL 与网页服务 | Docker 容器健康，数据库联调与公网健康检查已通过 |
+| 数据完整性 | 3 个无空间关系的历史账号已在备份后清理，审计为 `healthy: true` |
 
 ## 可选的敏感配置
 
@@ -31,6 +34,9 @@
 ```powershell
 $env:OPENCLAW_API_TOKEN = '<生成的 Rainbow-Cats 服务令牌>'
 $env:OPENCLAW_ACTOR_MAP = '{"main":"<对应微信用户的 legacy_open_id>"}'
+$env:OPENCLAW_INTERNAL_TOKEN = '<Rainbow-Cats 插件内部令牌>'
+$env:OPENCLAW_IDENTITY_SECRET = '<微信发送者身份 HMAC 密钥>'
+$env:RAINBOW_CATS_AGENT_ACCOUNT_IDS = '<允许的机器人账号 ID，逗号分隔>'
 $env:OPENCLAW_GATEWAY_TOKEN = '<仅在使用独立 HTTP Gateway 时配置>'
 $env:OPENCLAW_CHAT_URL = 'http://127.0.0.1:<端口>/<实际聊天 HTTP 入口>'
 $env:DATABASE_URL = 'postgres://<生产应用账户>:<密码>@<主机>:5432/rainbow_cats'
@@ -71,7 +77,7 @@ npm run test:api
 
 5. 正式环境必须先备份 PostgreSQL、安排 CloudBase 停写窗口，再执行导入和域名切换。
 
-当前没有执行正式迁移：本机测试库可通过私有加载脚本连接且已完成审计/接口测试，但工作区仍未发现 CloudBase 导出文件，也未执行生产导入。
+当前生产站点已使用 PostgreSQL 正常运行。工作区没有需要导入的 CloudBase 导出文件；只有以后确认存在历史 CloudBase 数据时，才执行本节迁移流程。
 
 ## 微信 OAuth 与真机验收
 
@@ -87,10 +93,10 @@ npm run test:api
 4. 网页“问小一”聊天。
 5. iPhone Safari、Android Chrome、桌面 Chrome/Edge。
 
-## 当前阻塞项
+## 当前待验收项
 
-- 微信渠道身份映射仍需真实微信账号完成绑定；它不影响当前网页 OpenClaw 聊天。
-- 没有 CloudBase 导出文件和生产数据库连接，不能执行正式迁移。
-- OAuth 资质和真机不在本机环境中。
+- 微信 OAuth 资质和真机不在自动化测试环境中。
+- iPhone Safari 与 Android Chrome 的最终真机验收仍需在实际设备上完成。
+- 若未来需要导入历史 CloudBase 数据，必须先取得脱敏导出文件并重新执行迁移演练。
 
-这些项目不是代码缺口，而是必须由真实账号、云端数据或设备提供的外部条件。
+当前生产网站、AI_1/小暖微信绑定和 OpenClaw 业务工具不受这些项目阻塞。

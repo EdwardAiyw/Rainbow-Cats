@@ -2,7 +2,7 @@
 
 > 测试主线：`web/` + `server/`
 >
-> 测试日期：2026-09-20
+> 测试日期：2026-09-24
 >
 > 测试人员：Codex（自动化回归）/ 用户（手工验收继续）
 >
@@ -16,6 +16,7 @@
 
 - 登录、创建空间、加入空间、退出登录和会话恢复
 - 双人空间成员同步与权限边界
+- 两个独立浏览器会话中的任务、礼物、收藏与菜谱同步
 - 心愿、积分、礼物、收藏和菜谱
 - 日程、账本、相册和设置
 - AI 助手未配置分支
@@ -561,6 +562,7 @@ cd server
 npm run check
 npm run test:api
 npm run test:ui
+npm run test:ui-two-user
 npm run audit:db
 ```
 
@@ -583,6 +585,7 @@ UI smoke 测试返回 `"passed": true`
 npm run check：通过
 npm run test:api：通过，输出 `API smoke tests passed`
 npm run test:ui：通过，9 个页面、桌面 1440×900、移动 390×844、弹窗和未配置服务分支均通过
+npm run test:ui-two-user：通过，两个独立 Edge 会话完成加入空间、任务完成、礼物兑换与使用、菜谱同步和会话刷新
 npm run audit:db：通过，`healthy: true`
 测试数据清理：通过，UI smoke 结束后 users、spaces、missions、sessions 均为 0
 错误信息：无未解决错误
@@ -666,14 +669,14 @@ npm run audit:db：通过，`healthy: true`
 
 ```text
 核心流程是否通过：自动化范围通过，完整手工流程待继续
-双人同步是否通过：API 自动化通过，双浏览器手工验收待继续
+双人同步是否通过：API 自动化与双浏览器自动化通过，双浏览器手工验收待继续
 桌面端是否通过：自动化通过
 移动端模拟是否通过：自动化通过
 真机测试：未执行
 TianAPI：未配置；未配置分支通过
-OpenClaw：未配置；未配置分支通过
+OpenClaw：隔离测试环境使用未配置分支并通过；生产插件与微信绑定另行验收通过
 是否发现阻断问题：曾发现 1 个，已修复并复测关闭
-最终结论：schema、API、数据库完整性和 UI smoke 通过；可继续执行双会话手工验收、真机和真实第三方服务联调。
+最终结论：schema、API、数据库完整性、单会话 UI smoke 与双浏览器自动化通过；可继续执行双会话手工验收和真机验收。
 ```
 
 ## 20. 测试结束清理

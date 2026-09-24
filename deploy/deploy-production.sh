@@ -310,16 +310,16 @@ assert payload.get('ok') is True and payload.get('data', {}).get('database') == 
 PY
 
 if [ "$rc_openclaw_enabled" = true ]; then
-  printf '%s\n' '[7/9] 验证容器内 OpenClaw CLI Gateway 推理通道'
-  rc_compose exec -T app openclaw --version
-  RELEASE_TAG="$rc_stamp" RAINBOW_PORT="$rc_port" OPENCLAW_VERSION="$rc_openclaw_version" \
-    timeout 75 docker compose -p "$rc_project" -f "$rc_release_target/compose.production.yaml" \
-      exec -T app openclaw infer model run --gateway --model "$rc_openclaw_model" \
-      --prompt 'Reply with exactly: pong' --json > "$rc_backup_dir/openclaw-smoke.json"
-  test -s "$rc_backup_dir/openclaw-smoke.json"
-  grep -qi 'pong' "$rc_backup_dir/openclaw-smoke.json" || { printf '%s\n' 'OpenClaw 推理未返回 pong。' >&2; exit 1; }
+  printf '%s\n' '[7/9] 验证容器内 OpenClaw CLI 与 Gateway 连通性'
+  rc_candidate_container=$(rc_compose ps -q app)
+  test -n "$rc_candidate_container"
+  docker exec "$rc_candidate_container" openclaw --version
+  timeout --kill-after=5s 30s docker exec "$rc_candidate_container" openclaw gateway status \
+    > "$rc_backup_dir/openclaw-gateway-status.txt"
+  grep -q 'Connectivity probe: ok' "$rc_backup_dir/openclaw-gateway-status.txt" \
+    || { printf '%s\n' 'OpenClaw CLI 无法连接本机 Gateway。' >&2; exit 1; }
 else
-  printf '%s\n' '[7/9] OpenClaw 推理未启用，跳过 CLI Gateway 测试'
+  printf '%s\n' '[7/9] OpenClaw 未启用，跳过 CLI Gateway 测试'
 fi
 
 printf '%s\n' '[8/9] 更新并验证 Caddy 路由'
