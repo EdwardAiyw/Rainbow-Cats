@@ -118,8 +118,8 @@ flowchart TD
 ### 1. 克隆仓库并安装依赖
 
 ```powershell
-git clone https://github.com/EdwardAiyw/Rainbow-Cats-Personal-WeChat-MiniProgram.git
-cd Rainbow-Cats-Personal-WeChat-MiniProgram\server
+git clone https://github.com/EdwardAiyw/Rainbow-Cats.git
+cd Rainbow-Cats\server
 npm install
 ```
 
